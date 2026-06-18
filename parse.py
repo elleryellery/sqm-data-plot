@@ -38,3 +38,35 @@ def format(times): # Format UTC or local times as datetime objects so that they 
 
     return out
 
+def get_unique_dates():
+    all_dates = format(time_local)
+    unique_dates = []
+    for time in all_dates:
+        if(not time.date() in unique_dates):
+            unique_dates.append(time.date())
+    return unique_dates
+
+def get_values_by_date(date): # Ensure that datetime.date() object is passed through!
+    all_times = format(time_local)
+    times, vals = [], []
+    for i in range(len(msas)): # TODO: Use binary search instead of linear to increase speed
+        if(all_times[i].date() == date):
+            times.append(all_times[i])
+            vals.append(msas[i])
+    return times, vals
+
+def max_quality_over_time():
+    dates = get_unique_dates()
+    qualities, time = [], []
+    for date in dates:
+        times, data = get_values_by_date(date)
+        max_quality = data[0]
+        max_time = times[0]
+        for i in range(len(times)):
+            if(data[i] > max_quality):
+                max_quality = data[i]
+                max_time = times[i]
+        qualities.append(max_quality)
+        time.append(max_time)
+        print(f'Max quality on {date}: {max_quality} at {max_time.time()}')
+    return qualities, time, dates
