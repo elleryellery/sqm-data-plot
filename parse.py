@@ -18,13 +18,17 @@ def parse_file(filename):
                 continue
 
             data = line.split(';') # Split values as specified in file format
-            
+
             time_utc.append(data[0])
             time_local.append(data[1])
             temp.append(data[2])
             count.append(data[3])
             freq.append(data[4])
+
             msas.append(float(data[5].replace('\n', ''))) # Remove new line indicator from end of line and interpret value as a float
+
+        apply_msas_offset(msas)
+
 
 def format(times): # Format UTC or local times as datetime objects so that they can be interpreted and plotted by matplotlib
     out = []
@@ -38,3 +42,11 @@ def format(times): # Format UTC or local times as datetime objects so that they 
 
     return out
 
+
+def apply_msas_offset(msas_data):
+    i = 0
+    for point in msas_data:
+        if point != 0:
+            point = point - 0.15
+            msas_data[i] = point
+        i += 1
