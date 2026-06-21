@@ -46,11 +46,11 @@ def menu_prompt():
             graph.graph_quality(filter_prompt())
         
         case '2':
-            graph.graph_quality_with_sun_moon_markers(filter_prompt())
+            graph.graph_quality_with_event_markers(filter_prompt())
         
         case '3':
             for date in parse.get_unique_dates()[:-1]:
-                graph.graph_quality_with_sun_moon_markers_single_date(date)
+                graph.graph_quality_with_event_markers_single_date(date)
 
         case '4':
             graph.graph_max_quality()
