@@ -3,6 +3,7 @@ import matplotlib.dates as mdates
 import parse
 import weather
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 # Defines the color of the event marker bars. List of color options can be found here: 
 # https://matplotlib.org/stable/gallery/color/named_colors.html
@@ -17,6 +18,11 @@ event_colors['moonrise'] = 'royalblue'
 event_colors['moonset'] = 'cornflowerblue'
 
 msas_night_threshold = 17.0
+
+timeFormat = mdates.DateFormatter('%H:%M')
+
+def update_time_format():
+    return mdates.DateFormatter('%H:%M', tz=parse.location.timezone)
 
 def graph_quality(filter_type):
     """
@@ -76,7 +82,7 @@ def graph_quality_with_event_markers(filter_type):
 
     plt.plot(x,y) # Plot time on x-axis, MSAS on y-axis
 
-    for date in parse.get_unique_dates():
+    for date in parse.get_unique_dates(parse.time_local):
         sun_data = weather.sun_times(parse.location, date)
         moon_data = weather.moon_times(parse.location, date)
 
@@ -105,6 +111,87 @@ def graph_quality_with_event_markers_single_date(date):
     """
     plt.figure()
 
+    sunset, sunrise, all_data = get_all_data(date)
+
+    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, sunset, sunrise)
+    plt.plot(times, vals) # Plot time on x-axis, MSAS on y-axis
+
+    for label, time in (all_data).items():
+        plt.axvline(x=time, color=event_colors[label])
+        plt.text(time, (plt.ylim()[0] + plt.ylim()[1])/2, label.capitalize(), rotation=90, verticalalignment='bottom', color=event_colors[label])
+
+    plt.text(0.5, 0.9, f'Moon Illumination: {weather.moon_illumination(date):.1f}%', horizontalalignment='center', color='slategray', transform=plt.subplot().transAxes)
+
+    plt.gca().invert_yaxis() # Flip y-axis upside down as specified by Tim
+
+    plt.xlabel("Time (s)")
+    plt.ylabel("MSAS")
+    plt.title("MSAS vs Time")
+    plt.grid()
+
+    plt.show()
+
+def graph_all_weather(date):
+    sunset, sunrise, all_data = get_all_data(date)
+
+    fig, axs = plt.subplots(2, 1, sharex=True)
+
+    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, sunset, sunrise)
+    axs[0].plot(times, vals) # Plot time on x-axis, MSAS on y-axis
+
+    for label, time in (all_data).items():
+        axs[0].axvline(x=time, color=event_colors[label])
+        axs[0].text(time, (axs[0].get_ylim()[0] + axs[0].get_ylim()[1])/2, label.capitalize(), rotation=90, verticalalignment='bottom', color=event_colors[label])
+
+    axs[0].text(0.5, 0.9, f'Moon Illumination: {weather.moon_illumination(date):.1f}%', horizontalalignment='center', color='slategray', transform=axs[0].transAxes)
+    axs[0].set_ylabel("MSAS")
+    axs[0].set_title(f"MSAS vs Time: {date}")
+    axs[0].xaxis.set_major_formatter(timeFormat)
+    axs[0].set_ylim(7, 22)
+    axs[0].invert_yaxis() # Flip y-axis upside down as specified by Tim
+
+    weather_data = weather.weather(parse.location, date)
+    weather_times, cloud_data = parse.get_values_by_night(weather_data[0], weather_data[1], sunset - timedelta(minutes=30), sunrise + timedelta(minutes=30))
+    axs[1].plot(weather_times, cloud_data, color='tomato')
+    axs[1].set_ylabel("Cloud Cover (%)")
+    axs[1].set_xlabel("Time")
+    axs[1].set_title("Cloud Cover vs Time")
+    axs[1].xaxis.set_major_formatter(timeFormat)
+    axs[1].set_ylim(0, 105)
+
+    plt.grid()
+    plt.show()
+
+def graph_max_quality(filter):
+    """
+    Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
+    during the night changes as the year progresses. The bottom graph shows how the time at which 
+    the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
+    """
+    if(filter):
+        qualities, time, dates = weather.remove_bad_days(parse.max_quality_over_time())
+    else:
+        qualities, time, dates = parse.max_quality_over_time()
+
+    fig, axs = plt.subplots(2,1)
+
+    axs[0].scatter(dates, qualities)
+    axs[0].set_ylabel("Max MSAS")
+    axs[0].set_title("Max MSAS by Date")
+    axs[0].set_ylim(17.5, 22)
+    axs[0].invert_yaxis()
+
+    axs[1].scatter(dates, time) #TODO: Make everything have this lovely format
+    axs[1].yaxis.set_major_formatter(timeFormat)
+    print(timeFormat.tz)
+    axs[1].set_xlabel("Date")
+    axs[1].set_ylabel("Time of Max MSAS")
+    axs[1].set_title("Time of Max MSAS by Date")
+
+    plt.grid()
+    plt.show()
+
+def get_all_data(date):
     # TODO: There might be a more efficient way to do this...
     # All of this crazy code is trying to fix the fact that Astral will return data for a day
     # as defined by midnight to midnight rather than data for the night as defined by dusk to
@@ -151,43 +238,4 @@ def graph_quality_with_event_markers_single_date(date):
     except KeyError:
         pass
 
-
-    times, vals = parse.get_values_by_night(sunset, sunrise)
-    plt.plot(times, vals) # Plot time on x-axis, MSAS on y-axis
-
-    for label, time in (all_data).items():
-        plt.axvline(x=time, color=event_colors[label])
-        plt.text(time, (plt.ylim()[0] + plt.ylim()[1])/2, label.capitalize(), rotation=90, verticalalignment='bottom', color=event_colors[label])
-
-    plt.gca().invert_yaxis() # Flip y-axis upside down as specified by Tim
-
-    plt.xlabel("Time (s)")
-    plt.ylabel("MSAS")
-    plt.title("MSAS vs Time")
-    plt.grid()
-
-    plt.show()
-
-def graph_max_quality():
-    """
-    Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
-    during the night changes as the year progresses. The bottom graph shows how the time at which 
-    the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
-    """
-    qualities, time, dates = parse.max_quality_over_time()
-
-    fig, axs = plt.subplots(2,1)
-
-    axs[0].scatter(dates, qualities)
-    axs[0].set_ylabel("Max MSAS")
-    axs[0].set_title("Max MSAS by Date")
-
-    axs[1].scatter(dates, time) #TODO: This graph has a bug
-    timeFormat = mdates.DateFormatter('%H:%M')
-    axs[1].yaxis.set_major_formatter(timeFormat)
-    axs[1].set_xlabel("Date")
-    axs[1].set_ylabel("Time of Max MSAS")
-    axs[1].set_title("Time of Max MSAS by Date")
-
-    plt.grid()
-    plt.show()
+    return sunset, sunrise, all_data

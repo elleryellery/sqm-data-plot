@@ -21,7 +21,7 @@ def read_file():
         filename = filenames[i]
         clear_terminal()
         print(f'Reading: {filename}')
-        printProgressBar(i, num_files, prefix='Upload progress: ', length=50)
+        parse.printProgressBar(i, num_files, prefix='Upload progress: ', length=50)
         try:
             parse.parse_file(filename)
         except:
@@ -31,6 +31,8 @@ def read_file():
     print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Number of duplicates: {parse.num_duplicates}\n')
 
     parse.time_utc, parse.time_local, parse.temp, parse.count, parse.freq, parse.msas = parse.sort_all()
+
+    graph.timeFormat = graph.update_time_format()
 
 def filter_prompt():
     print('Available data filter styles:')
@@ -71,16 +73,20 @@ def menu_prompt():
             graph.graph_quality_with_event_markers(filter_prompt())
         
         case '3':
-            for date in parse.get_unique_dates()[:-1]:
-                graph.graph_quality_with_event_markers_single_date(date)
+            for date in parse.get_unique_dates(parse.time_local)[:-1]:
+                #graph.graph_quality_with_event_markers_single_date(date)
+                graph.graph_all_weather(date)
 
         case '4':
             input_date = input('Please input a date in the format YYYY/MM/DD: ')
             year, day, month = input_date.split('/')
-            graph.graph_quality_with_event_markers_single_date(datetime.date(int(year), int(day), int(month)))
+            date = datetime.date(int(year), int(day), int(month))
+            weather.bad_day(parse.location, date, verbose=True)
+            graph.graph_all_weather(date)
 
         case '5':
-            graph.graph_max_quality()
+            filter = input('Remove datapoints from cloudy days? (Y/N)') == 'Y'
+            graph.graph_max_quality(filter)
 
         case '6':
             read_file()
@@ -88,35 +94,11 @@ def menu_prompt():
         case _:
             print('Unknown feature.')
 
-def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
-    """
-    
-    CREDIT TO SOME GUY ON STACK OVERFLOW: https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
-    
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
-    """
-    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-    filledLength = int(length * iteration // total)
-    bar = fill * filledLength + '-' * (length - filledLength)
-    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
-    # Print New Line on Complete
-    if iteration == total: 
-        print()
+# Use the below code to test features with a text input menu. Or, comment it out and
+# add your own code to test.
 
 def clear_terminal():
     os.system('cls' if os.name == 'nt' else 'clear')
-
-# Use the below code to test features with a text input menu. Or, comment it out and
-# add your own code to test.
 
 read_file()
 

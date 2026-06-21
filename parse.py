@@ -2,6 +2,7 @@ import datetime
 from datetime import timedelta
 import weather
 from zoneinfo import ZoneInfo
+import os
 
 time_utc = [] # UTC Date & Time // YYYY-MM-DDTHH:mm:ss.fff
 time_local = [] # Local Date & Time // YYYY-MM-DDTHH:mm:ss.fff
@@ -91,7 +92,10 @@ def format_all(times):
     for point in times:
         date, time = point.split('T')
         year, month, day = date.split('-')
-        hour, min, sec = time.split(':')
+        try:
+            hour, min, sec = time.split(':')
+        except ValueError:
+            hour, min = time.split(':')
 
         out.append(datetime.datetime(int(year), int(month), int(day), int(hour), int(min)))
 
@@ -109,11 +113,14 @@ def format_one(point):
     """
     date, time = point.split('T')
     year, month, day = date.split('-')
-    hour, min, sec = time.split(':')
+    try:
+        hour, min, sec = time.split(':')
+    except ValueError:
+        hour, min = time.split(':')
 
     return datetime.datetime(int(year), int(month), int(day), int(hour), int(min))
 
-def get_unique_dates():
+def get_unique_dates(times):
     """
     Returns a list of unique days that the dataset covers. Note that the final element in the list will be
     a day with only morning values (i.e. the method returns every single day mentioned in the dataset, not
@@ -124,7 +131,7 @@ def get_unique_dates():
 
     """
     unique_dates = []
-    for time in time_local:
+    for time in times:
         if(not time.date() in unique_dates):
             unique_dates.append(time.date())
     return unique_dates
@@ -148,7 +155,7 @@ def get_values_by_date(date):
             vals.append(msas[i])
     return times, vals
 
-def get_values_by_night(starttime, endtime):
+def get_values_by_night(timestamps, values, starttime, endtime):
     """
     Gets values recorded throughout the night between the specified start time and end time.
 
@@ -161,10 +168,10 @@ def get_values_by_night(starttime, endtime):
         vals (list of floats): The MSAS values recorded between the specified start and end times.
     """
     times, vals = [], []
-    for i in range(len(msas)): # TODO: Use binary search instead of linear to increase speed
-        if(starttime <= time_local[i] <= endtime):
-            times.append(time_local[i])
-            vals.append(msas[i])
+    for i in range(len(timestamps)): # TODO: Use binary search instead of linear to increase speed
+        if(starttime <= timestamps[i] <= endtime):
+            times.append(timestamps[i])
+            vals.append(values[i])
     return times, vals
 
 def max_quality_over_time():
@@ -177,10 +184,13 @@ def max_quality_over_time():
         dates (list of datetime objects): The dates for which data was taken.
     """
     data = {}
-    for i in range(len(time_local)):
-        date = time_local[i].date()
 
-        max_time = time_local[i]
+    all_times, all_msas = values_dusk_to_dawn(time_local, msas)
+
+    for i in range(len(all_times)):
+        date = all_times[i].date()
+
+        max_time = all_times[i]
         day = 1
         if(max_time.hour < 12): # Morning values are pushed to the next day, otherwise the plot will wrap around midnight
             day = 2
@@ -188,21 +198,18 @@ def max_quality_over_time():
 
         try:
             current_maximum = data[date][1]
-            if(msas[i] > current_maximum):
-                data[date] = (max_time, msas[i])
+            if(all_msas[i] > current_maximum):
+                data[date] = (max_time, all_msas[i])
         
         except KeyError:
-            data[date] = (max_time, msas[i])
+            data[date] = (max_time, all_msas[i])
 
     times, qualities = map(list, zip(*data.values()))
     dates = list(data.keys())
 
-    print(times[:3])
-    print(qualities[:3])
-
     return qualities, times, dates
 
-def values_dusk_to_dawn():
+def values_dusk_to_dawn(times, values):
     """
     Returns the entire dataset filtered by removing datapoints outside of the time between dusk and dawn.
     Can be used for datasets spanning multiple days.
@@ -212,9 +219,9 @@ def values_dusk_to_dawn():
         msas_filtered (list of floats): msas list of floats with values outside of dusk-dawn removed.
     """
     times_filtered = []
-    msas_filtered = []
+    values_filtered = []
 
-    dates = get_unique_dates()
+    dates = get_unique_dates(times)
     sun_times = {}
 
     for date in dates:
@@ -223,15 +230,15 @@ def values_dusk_to_dawn():
         sun_times[f'rise-{date.year}/{date.month}/{date.day}'] = data['dawn']
         sun_times[f'set-{date.year}/{date.month}/{date.day}'] = data['dusk']
     
-    for i in range(len(time_local)):
-        set = sun_times[f'set-{time_local[i].year}/{time_local[i].month}/{time_local[i].day}']
-        rise = sun_times[f'rise-{time_local[i].year}/{time_local[i].month}/{time_local[i].day}']
+    for i in range(len(times)):
+        set = sun_times[f'set-{times[i].year}/{times[i].month}/{times[i].day}']
+        rise = sun_times[f'rise-{times[i].year}/{times[i].month}/{times[i].day}']
 
-        if(time_local[i] >= set or time_local[i] <= rise):
-            times_filtered.append(time_local[i])
-            msas_filtered.append(msas[i])
+        if(times[i] >= set or times[i] <= rise):
+            times_filtered.append(times[i])
+            values_filtered.append(values[i])
     
-    return times_filtered, msas_filtered
+    return times_filtered, values_filtered
 
 def restricted_values(threshold):
     """
@@ -253,3 +260,30 @@ def restricted_values(threshold):
             data.append(msas[i])
     
     return times, data
+
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
+    """
+    
+    CREDIT TO SOME GUY ON STACK OVERFLOW: https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
+    
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print(f'\n{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
+    # Print New Line on Complete
+    if iteration == total: 
+        print()
+
+def clear_terminal():
+    os.system('cls' if os.name == 'nt' else 'clear')
