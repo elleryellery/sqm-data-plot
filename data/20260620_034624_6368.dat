@@ -1,0 +1,36 @@
+# Community Standard Skyglow Data Format 1.0
+# URL: http://www.darksky.org/NSBM/sdf1.0.pdf
+# Number of header lines: 35
+# This data is released under the following license: ODbL 1.0 http://opendatacommons.org/licenses/odbl/summary/
+# Device type: SQM-LE/LU
+# Instrument ID: 6368
+# Data supplier: Tim Brothers - MIT Wallace Astrophysical Observatory
+# Location name: Westford, MA
+# Position (lat, lon, elev(m)): +42.6100, -71.4840, +105
+# Local timezone: America/New_York
+# Time Synchronization: NTP
+# Moving / Stationary position: STATIONARY
+# Moving / Fixed look direction: FIXED
+# Number of channels: 1
+# Filters per channel: HOYA CM-500
+# Measurement direction per channel: 0, 0
+# Field of view (degrees): 20
+# Number of fields per line: 6
+# SQM serial number: 6368
+# SQM firmware version: 4-3-80
+# SQM cover offset value: -0.15
+# SQM readout test ix: i,00000004,00000003,00000080,00006368
+# SQM readout test rx: r, 19.49m,0000000001Hz,0000299624c,0000000.650s, 029.3C
+# SQM readout test cx: c,00000019.95m,0000112.509s, 021.2C,00000008.71m, 024.1C
+# Comment: Data acquired by SQM Reader Pro v3.2.2.0
+# Comment: 
+# Comment: 
+# Comment: 
+# Comment: 
+# blank line 30
+# blank line 31
+# blank line 32
+# UTC Date & Time, Local Date & Time, Temperature, Counts, Frequency, MSAS
+# YYYY-MM-DDTHH:mm:ss.fff;YYYY-MM-DDTHH:mm:ss.fff;Celsius;number;Hz;mag/arcsec^2
+# END OF HEADER
+2026-06-20T08:46:25.000;2026-06-20T03:46:25.000;29.3;;;19.49

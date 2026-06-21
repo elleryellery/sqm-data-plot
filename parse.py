@@ -10,6 +10,8 @@ count = [] # Counts // no units
 freq = [] # Frequence // Hz
 msas = [] # MSAS // mag/arcsec^2
 
+num_duplicates = 0
+
 location = weather.Location(0.0, 0.0, "Not specified", "None") # Initial location object with default values
 
 def parse_file(filename):
@@ -21,6 +23,8 @@ def parse_file(filename):
     Args:
         filename (str): The name of the file to be read from.
     """
+    unique_timestamps = set() # Checking a set for duplicates is, like, SO SO much faster than checking a list. Like, it's unbelievable.
+
     with open(filename) as datfile:
 
         for line in datfile:
@@ -35,16 +39,41 @@ def parse_file(filename):
                 elif('Local timezone' in line):
                     location.set_timezone(line.split(': ')[1].replace('\n', ''))
             
-                continue #Skip comment lines
+                continue # Skip comment lines
 
             data = line.split(';') # Split values as specified in file format
             
-            time_utc.append(format_one(data[0]))
-            time_local.append(format_one(data[1]).replace(tzinfo=location.timezone))
-            temp.append(data[2])
-            count.append(data[3])
-            freq.append(data[4])
-            msas.append(float(data[5].replace('\n', ''))) # Remove new line indicator from end of line and interpret value as a float
+            timestamp = format_one(data[0])            
+            msas_point = data[5].replace('\n', '')
+            not_duplicate = (timestamp not in unique_timestamps)
+
+            if(not_duplicate and (msas_point != '')):
+                unique_timestamps.add(timestamp)
+                time_utc.append(timestamp)
+                time_local.append(format_one(data[1]).replace(tzinfo=location.timezone))
+                temp.append(data[2])
+                count.append(data[3])
+                freq.append(data[4])
+                try:
+                    msas.append(float(msas_point)) # Remove new line indicator from end of line and interpret value as a float
+                except:
+                    print(f'Error occurred in line: {line}')
+            else:
+                if(not not_duplicate):
+                    global num_duplicates
+                    num_duplicates += 1
+
+def sort_all():
+    s_time_utc, s_time_local, s_temp, s_count, s_freq, s_msas = zip(*sorted(zip(time_utc, time_local, temp, count, freq, msas)))
+
+    s_time_utc = list(s_time_utc)
+    s_time_local = list(s_time_local)
+    s_temp = list(s_temp)
+    s_count = list(s_count)
+    s_freq = list(s_freq)
+    s_msas = list(s_msas)
+
+    return s_time_utc, s_time_local, s_temp, s_count, s_freq, s_msas
 
 def format_all(times): 
     """
@@ -147,28 +176,31 @@ def max_quality_over_time():
         time (list of datetime objects): The time at which the maximum MSAS value was achieved on each night.
         dates (list of datetime objects): The dates for which data was taken.
     """
-    dates = get_unique_dates()
-    qualities, time = [], []
-    for date in dates:
+    data = {}
+    for i in range(len(time_local)):
+        date = time_local[i].date()
 
-        times, data = get_values_by_date(date)
-        max_quality = data[0]
-        max_time = times[0]
-
-        for i in range(len(times)):
-            if(data[i] > max_quality):
-                max_quality = data[i]
-                max_time = times[i]
-        qualities.append(max_quality)
-
+        max_time = time_local[i]
+        day = 1
         if(max_time.hour < 12): # Morning values are pushed to the next day, otherwise the plot will wrap around midnight
             day = 2
-        else:
-            day = 1
+        max_time = datetime.datetime(2026, 1, day, max_time.hour, max_time.minute, 0)
 
-        time.append(datetime.datetime(2026, 1, day, max_time.hour, max_time.minute, max_time.second)) # Normalize times to be within 24 hours of each other for plotting purposes
-    
-    return qualities, time, dates
+        try:
+            current_maximum = data[date][1]
+            if(msas[i] > current_maximum):
+                data[date] = (max_time, msas[i])
+        
+        except KeyError:
+            data[date] = (max_time, msas[i])
+
+    times, qualities = map(list, zip(*data.values()))
+    dates = list(data.keys())
+
+    print(times[:3])
+    print(qualities[:3])
+
+    return qualities, times, dates
 
 def values_dusk_to_dawn():
     """

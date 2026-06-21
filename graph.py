@@ -136,6 +136,8 @@ def graph_quality_with_event_markers_single_date(date):
     except TypeError: #Handles case where moonrise goes from 11:59 to midnight
         if(sunset <= moon_data_tomorrow['moonset'] <= sunrise):
             all_data['moonset'] = moon_data_tomorrow['moonset']
+    except KeyError:
+        pass
 
     try:
         if(sunset <= moon_data['moonrise'] <= sunrise):
@@ -146,6 +148,8 @@ def graph_quality_with_event_markers_single_date(date):
     except TypeError: #Handles case where moonrise goes from 11:59 to midnight
         if(sunset <= moon_data_tomorrow['moonrise'] <= sunrise):
             all_data['moonrise'] = moon_data_tomorrow['moonrise']
+    except KeyError:
+        pass
 
 
     times, vals = parse.get_values_by_night(sunset, sunrise)
@@ -174,11 +178,11 @@ def graph_max_quality():
 
     fig, axs = plt.subplots(2,1)
 
-    axs[0].plot(dates, qualities)
+    axs[0].scatter(dates, qualities)
     axs[0].set_ylabel("Max MSAS")
     axs[0].set_title("Max MSAS by Date")
 
-    axs[1].plot(dates, time) #TODO: This graph has a bug
+    axs[1].scatter(dates, time) #TODO: This graph has a bug
     timeFormat = mdates.DateFormatter('%H:%M')
     axs[1].yaxis.set_major_formatter(timeFormat)
     axs[1].set_xlabel("Date")
