@@ -5,6 +5,7 @@ import weather
 import os
 import datetime
 import time
+import predict
 
 # I changed this file so that it can do a nice little menu in the terminal that responds to 
 # user prompts. If you want to add features to the menu, be sure to update the menu_prompt()
@@ -19,20 +20,19 @@ def read_file():
 
     for i in range(num_files):
         filename = filenames[i]
-        clear_terminal()
-        print(f'Reading: {filename}')
+        print(f'\rReading: {filename}', end="", flush=True)
         parse.printProgressBar(i, num_files, prefix='Upload progress: ', length=50)
         try:
             parse.parse_file(filename)
         except:
             print(f'Error processing {filename}')
     
-    clear_terminal()
-    print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Number of duplicates: {parse.num_duplicates}\n')
+    print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Number of duplicates: {parse.num_duplicates}')
 
     parse.time_utc, parse.time_local, parse.temp, parse.count, parse.freq, parse.msas = parse.sort_all()
 
     graph.timeFormat = graph.update_time_format()
+    weather.update_big_weather()
 
 def filter_prompt():
     print('Available data filter styles:')
@@ -62,6 +62,8 @@ def menu_prompt():
     print('  4. Graph quality with markers for a specified night.')
     print('  5. Graph maximum quality over all nights.')
     print('  6. Add another file to the dataset.')
+    print('  7. Create predicted values for a date.')
+    print('  8. Test baseline fit.')
 
     feature = input('Select a feature: ')
 
@@ -90,6 +92,15 @@ def menu_prompt():
 
         case '6':
             read_file()
+
+        case '7':
+            input_date = input('Please input a date in the format YYYY/MM/DD: ')
+            year, day, month = input_date.split('/')
+            date = datetime.date(int(year), int(day), int(month))
+            graph.graph('date-with-fit', date=date)
+        
+        case '8':
+            graph.test_fit()
                 
         case _:
             print('Unknown feature.')
@@ -105,3 +116,14 @@ read_file()
 while(True):
     menu_prompt()
     clear_terminal()
+
+#for date in parse.find_nomoon_nocloud():
+    #graph.graph('date-with-fit', date=date)
+
+#predict.get_moon_factor()
+
+#predict.get_cloud_factor(0)
+
+#graph.test_fit()
+#msas, times, dates = parse.max_quality_over_time()
+#weather.no_moon(msas[0:], times[0:], dates[0:])

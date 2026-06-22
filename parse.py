@@ -1,5 +1,6 @@
 import datetime
 from datetime import timedelta
+import graph
 import weather
 from zoneinfo import ZoneInfo
 import os
@@ -155,7 +156,7 @@ def get_values_by_date(date):
             vals.append(msas[i])
     return times, vals
 
-def get_values_by_night(timestamps, values, starttime, endtime):
+def get_values_by_time(timestamps, values, starttime, endtime):
     """
     Gets values recorded throughout the night between the specified start time and end time.
 
@@ -170,6 +171,27 @@ def get_values_by_night(timestamps, values, starttime, endtime):
     times, vals = [], []
     for i in range(len(timestamps)): # TODO: Use binary search instead of linear to increase speed
         if(starttime <= timestamps[i] <= endtime):
+            times.append(timestamps[i])
+            vals.append(values[i])
+    return times, vals
+
+def get_values_by_night(timestamps, values, date):
+    """
+    Gets values recorded throughout the night between the specified start time and end time.
+
+    Args:
+        starttime (datetime object): The start time of the night. Can be a dusk value or a specified time.
+        endtime (datetime object): The end time of the night. Can be a dawn value or a specified time.
+    
+    Returns:
+        times (list of datetime objects): The timestamps recorded between the specified start and end times.
+        vals (list of floats): The MSAS values recorded between the specified start and end times.
+    """
+    sunset, sunrise, all_data = graph.get_all_data(date)
+
+    times, vals = [], []
+    for i in range(len(timestamps)): # TODO: Use binary search instead of linear to increase speed
+        if(sunset <= timestamps[i] <= sunrise):
             times.append(timestamps[i])
             vals.append(values[i])
     return times, vals
@@ -277,13 +299,24 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
         fill        - Optional  : bar fill character (Str)
         printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
     """
-    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
-    filledLength = int(length * iteration // total)
+    percent = ("{0:." + str(decimals) + "f}").format(100 * ((iteration+1) / float(total)))
+    filledLength = int(length * (iteration+1) // total)
     bar = fill * filledLength + '-' * (length - filledLength)
-    print(f'\n{prefix} |{bar}| {percent}% {suffix}', end = printEnd)
+    print(f'\r{prefix} |{bar}| {percent}% {suffix}', end = "", flush=True)
     # Print New Line on Complete
-    if iteration == total: 
+    if (iteration+1) == total: 
         print()
 
 def clear_terminal():
     os.system('cls' if os.name == 'nt' else 'clear')
+
+def find_nomoon_nocloud():
+    references = []
+    dates = get_unique_dates(time_local)
+    for i in range(len(dates)):
+        date = dates[i]
+        printProgressBar(i, len(dates), 'Finding sun references: ', length=50)
+        if((weather.dim_moon(date)) and weather.no_clouds(date)):
+            references.append(date)
+    
+    return references

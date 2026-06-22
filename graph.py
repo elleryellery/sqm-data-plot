@@ -4,6 +4,7 @@ import parse
 import weather
 from datetime import timedelta
 from zoneinfo import ZoneInfo
+import predict
 
 # Defines the color of the event marker bars. List of color options can be found here: 
 # https://matplotlib.org/stable/gallery/color/named_colors.html
@@ -113,7 +114,7 @@ def graph_quality_with_event_markers_single_date(date):
 
     sunset, sunrise, all_data = get_all_data(date)
 
-    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, sunset, sunrise)
+    times, vals = parse.get_values_by_time(parse.time_local, parse.msas, sunset, sunrise)
     plt.plot(times, vals) # Plot time on x-axis, MSAS on y-axis
 
     for label, time in (all_data).items():
@@ -136,7 +137,7 @@ def graph_all_weather(date):
 
     fig, axs = plt.subplots(2, 1, sharex=True)
 
-    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, sunset, sunrise)
+    times, vals = parse.get_values_by_time(parse.time_local, parse.msas, sunset, sunrise)
     axs[0].plot(times, vals) # Plot time on x-axis, MSAS on y-axis
 
     for label, time in (all_data).items():
@@ -150,8 +151,7 @@ def graph_all_weather(date):
     axs[0].set_ylim(7, 22)
     axs[0].invert_yaxis() # Flip y-axis upside down as specified by Tim
 
-    weather_data = weather.weather(parse.location, date)
-    weather_times, cloud_data = parse.get_values_by_night(weather_data[0], weather_data[1], sunset - timedelta(minutes=30), sunrise + timedelta(minutes=30))
+    weather_times, cloud_data = weather.from_big_weather_night(date)
     axs[1].plot(weather_times, cloud_data, color='tomato')
     axs[1].set_ylabel("Cloud Cover (%)")
     axs[1].set_xlabel("Time")
@@ -160,7 +160,8 @@ def graph_all_weather(date):
     axs[1].set_ylim(0, 105)
 
     plt.grid()
-    plt.show()
+
+    return fig, axs
 
 def graph_max_quality(filter):
     """
@@ -183,7 +184,6 @@ def graph_max_quality(filter):
 
     axs[1].scatter(dates, time) #TODO: Make everything have this lovely format
     axs[1].yaxis.set_major_formatter(timeFormat)
-    print(timeFormat.tz)
     axs[1].set_xlabel("Date")
     axs[1].set_ylabel("Time of Max MSAS")
     axs[1].set_title("Time of Max MSAS by Date")
@@ -239,3 +239,52 @@ def get_all_data(date):
         pass
 
     return sunset, sunrise, all_data
+
+
+def test_fit():
+    """
+    Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
+    during the night changes as the year progresses. The bottom graph shows how the time at which 
+    the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
+    """
+    qualities, time, dates = parse.max_quality_over_time()
+    filtered_dates, filtered_vals = weather.filter_no_moon(qualities, time, dates)
+
+    plt.scatter(dates, qualities, color='red')
+    plt.scatter(filtered_dates, filtered_vals, color='blue')
+    fit_times, fit_vals = predict.get_baseline_graph_data()
+    plt.plot(fit_times, fit_vals, color='green')
+    plt.ylim(17.5, 22)
+    plt.gca().invert_yaxis()
+
+    plt.grid()
+    plt.show()
+
+def test_prediction(date):
+    fig, axs = graph_all_weather(date)
+    times, vals = predict.make_prediction(date)
+
+    axs[0].plot(times, vals, color='green')
+    return fig, axs
+
+def just_plot_it(x, y):
+    plt.plot(x,y)
+    plt.gca().invert_yaxis()
+    
+def graph_fit(date):
+    fig, axs = graph_all_weather(date)
+    times, vals = predict.make_prediction(date)
+
+    axs[0].plot(times, vals, color='green')
+    return fig, axs
+
+def graph(graph, date=None, filter='none'):
+    match(graph):
+        case 'test-prediction':
+            fig, axs = test_prediction(date)
+        case 'date-with-weather':
+            fig, axs = graph_all_weather(date)
+        case 'date-with-fit':
+            fig, axs = graph_fit(date)
+    
+    plt.show()
