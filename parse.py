@@ -58,6 +58,8 @@ def parse_file(filename):
                     msas.append(float(msas_point)) # Remove new line indicator from end of line and interpret value as a float
                 except:
                     print(f'Error occurred in line: {line}')
+                
+                apply_msas_offset(msas)
             else:
                 if(not not_duplicate):
                     global num_duplicates
@@ -97,6 +99,15 @@ def format_all(times):
 
     return out
 
+
+def apply_msas_offset(msas_data):
+    i = 0
+    for point in msas_data:
+        if point != 0:
+            point = point - 0.15
+            msas_data[i] = point
+        i += 1
+        
 def format_one(point):
     """
     Formats one point in time as a datetime object to be interpreted and plotted.
