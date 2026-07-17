@@ -1,8 +1,5 @@
 import datetime
-from datetime import timedelta
-import graph
 import weather
-from zoneinfo import ZoneInfo
 import os
 
 time_utc = [] # UTC Date & Time // YYYY-MM-DDTHH:mm:ss.fff
@@ -15,6 +12,10 @@ msas = [] # MSAS // mag/arcsec^2
 num_duplicates = 0
 
 location = weather.Location(0.0, 0.0, "Not specified", "None") # Initial location object with default values
+
+################################################################################################
+############################### PARSING AND INTERPRETING DATA FILES ############################
+################################################################################################
 
 def parse_file(filename):
     """
@@ -66,6 +67,13 @@ def parse_file(filename):
                     num_duplicates += 1
 
 def sort_all():
+    """
+    Sorts all data by timestamp. This is useful when adding multiple files in a non-consecutive
+    order. This is called each time new files are uploaded to ensure that the data set is kept
+    in order.
+    """
+    global time_utc, time_local, temp, count, freq, msas
+
     s_time_utc, s_time_local, s_temp, s_count, s_freq, s_msas = zip(*sorted(zip(time_utc, time_local, temp, count, freq, msas)))
 
     s_time_utc = list(s_time_utc)
@@ -75,7 +83,7 @@ def sort_all():
     s_freq = list(s_freq)
     s_msas = list(s_msas)
 
-    return s_time_utc, s_time_local, s_temp, s_count, s_freq, s_msas
+    time_utc, time_local, temp, count, freq, msas = s_time_utc, s_time_local, s_temp, s_count, s_freq, s_msas
 
 def format_all(times): 
     """
@@ -86,7 +94,7 @@ def format_all(times):
         times (list of strings): Times to be formatted -- either UTC or local time values.
     
     Returns:
-        out (list of datetime objects): Times converted to datetime objects.
+        list of datetime objects: Times converted to datetime objects.
     """
     out = []
 
@@ -110,7 +118,7 @@ def format_one(point):
         point (string): Time to be formatted.
     
     Returns:
-        Time converted to datetime object.
+        datetime object: time converted to datetime object.
     """
     date, time = point.split('T')
     year, month, day = date.split('-')
@@ -121,6 +129,10 @@ def format_one(point):
 
     return datetime.datetime(int(year), int(month), int(day), int(hour), int(min))
 
+################################################################################################
+################################## RETRIEVING DATA SUBSETS #####################################
+################################################################################################
+
 def get_unique_dates(times):
     """
     Returns a list of unique days that the dataset covers. Note that the final element in the list will be
@@ -128,33 +140,13 @@ def get_unique_dates(times):
     every night on which data was taken).
 
     Returns:
-        unique_dates (list of datetime objects): First timestamp at which data was recorded on each night.
-
+        list of datetime objects: First timestamp at which data was recorded on each night.
     """
     unique_dates = []
     for time in times:
         if(not time.date() in unique_dates):
             unique_dates.append(time.date())
     return unique_dates
-
-def get_values_by_date(date):
-    """
-    Returns MSAS values and times that were recorded on a specific date. "Date" is defined as midnight-to-
-    midnight, rather than sunset-to-sunrise or sunrise-to-sunset.
-
-    Args:
-        date (datetime.date() object): The date to get values for. NOTE: Must be datetime.date() object, not datetime!!
-    
-    Returns:
-        times (list of datetime objects): The timestamps at which data was taken throughout the night.
-        vals (list of floats): Corresponding MSAS values.
-    """
-    times, vals = [], []
-    for i in range(len(msas)): # TODO: Use binary search instead of linear to increase speed
-        if(time_local[i].date() == date):
-            times.append(time_local[i])
-            vals.append(msas[i])
-    return times, vals
 
 def get_values_by_time(timestamps, values, starttime, endtime):
     """
@@ -165,8 +157,8 @@ def get_values_by_time(timestamps, values, starttime, endtime):
         endtime (datetime object): The end time of the night. Can be a dawn value or a specified time.
     
     Returns:
-        times (list of datetime objects): The timestamps recorded between the specified start and end times.
-        vals (list of floats): The MSAS values recorded between the specified start and end times.
+        list of datetime objects: The timestamps recorded between the specified start and end times.
+        list of floats: The MSAS values recorded between the specified start and end times.
     """
     times, vals = [], []
     for i in range(len(timestamps)): # TODO: Use binary search instead of linear to increase speed
@@ -177,33 +169,71 @@ def get_values_by_time(timestamps, values, starttime, endtime):
 
 def get_values_by_night(timestamps, values, date):
     """
-    Gets values recorded throughout the night between the specified start time and end time.
+    Gets values recorded throughout the night between the sunset and sunrise on a specified date.
 
     Args:
         starttime (datetime object): The start time of the night. Can be a dusk value or a specified time.
         endtime (datetime object): The end time of the night. Can be a dawn value or a specified time.
     
     Returns:
-        times (list of datetime objects): The timestamps recorded between the specified start and end times.
-        vals (list of floats): The MSAS values recorded between the specified start and end times.
+        list of datetime objects: The timestamps recorded between the specified start and end times.
+        list of floats: The MSAS values recorded between the specified start and end times.
     """
-    sunset, sunrise, all_data = graph.get_all_data(date)
+    sunset = weather.sunset(date)
+    sunrise = weather.sunrise(date)
 
     times, vals = [], []
     for i in range(len(timestamps)): # TODO: Use binary search instead of linear to increase speed
         if(sunset <= timestamps[i] <= sunrise):
             times.append(timestamps[i])
             vals.append(values[i])
+
     return times, vals
+
+def values_dusk_to_dawn(times, values):
+    """
+    Returns the entire dataset filtered by removing datapoints outside of the time between dusk and dawn.
+    Can be used for datasets spanning multiple days.
+
+    Returns:
+        list of datetime objects: time_local list of timestamps with values outside of dusk-dawn removed.
+        list of floats: msas list of floats with values outside of dusk-dawn removed.
+    """
+    times_filtered = []
+    values_filtered = []
+
+    dates = get_unique_dates(times)
+    sun_times = {}
+
+    for date in dates:
+        sun_times[f'rise-{date.year}/{date.month}/{date.day}'] = weather.dawn(date)
+        sun_times[f'set-{date.year}/{date.month}/{date.day}'] = weather.dusk(date)
+    
+    # This could be condensed into one loop, but this way the dusk and dawn only have to be
+    # calculated once per date instead of once per timestamp.
+
+    for i in range(len(times)):
+        set = sun_times[f'set-{times[i].year}/{times[i].month}/{times[i].day}']
+        rise = sun_times[f'rise-{times[i].year}/{times[i].month}/{times[i].day}']
+
+        if(times[i] >= set or times[i] <= rise):
+            times_filtered.append(times[i])
+            values_filtered.append(values[i])
+    
+    return times_filtered, values_filtered
+
+################################################################################################
+####################################### OTHER DATA SETS ########################################
+################################################################################################
 
 def max_quality_over_time():
     """
     Provides data about the best sky quality achieved each night.
 
     Returns:
-        qualities (list of floats): The maximum MSAS values for each night.
-        time (list of datetime objects): The time at which the maximum MSAS value was achieved on each night.
-        dates (list of datetime objects): The dates for which data was taken.
+        list of floats: The maximum MSAS values for each night.
+        list of datetime objects: The time at which the maximum MSAS value was achieved on each night.
+        list of datetime objects: The dates for which data was taken.
     """
     data = {}
 
@@ -231,38 +261,7 @@ def max_quality_over_time():
 
     return qualities, times, dates
 
-def values_dusk_to_dawn(times, values):
-    """
-    Returns the entire dataset filtered by removing datapoints outside of the time between dusk and dawn.
-    Can be used for datasets spanning multiple days.
-
-    Returns:
-        times_filtered (list of datetime objects): time_local list of timestamps with values outside of dusk-dawn removed.
-        msas_filtered (list of floats): msas list of floats with values outside of dusk-dawn removed.
-    """
-    times_filtered = []
-    values_filtered = []
-
-    dates = get_unique_dates(times)
-    sun_times = {}
-
-    for date in dates:
-        data = weather.sun_times(location, date)
-
-        sun_times[f'rise-{date.year}/{date.month}/{date.day}'] = data['dawn']
-        sun_times[f'set-{date.year}/{date.month}/{date.day}'] = data['dusk']
-    
-    for i in range(len(times)):
-        set = sun_times[f'set-{times[i].year}/{times[i].month}/{times[i].day}']
-        rise = sun_times[f'rise-{times[i].year}/{times[i].month}/{times[i].day}']
-
-        if(times[i] >= set or times[i] <= rise):
-            times_filtered.append(times[i])
-            values_filtered.append(values[i])
-    
-    return times_filtered, values_filtered
-
-def restricted_values(threshold):
+def values_by_threshold(threshold):
     """
     Returns the dataset with all data points where the MSAS value was less than the specified threshold
     removed.
@@ -271,8 +270,8 @@ def restricted_values(threshold):
         threshold (float): The minimum MSAS value that the dataset should contain.
     
     Returns:
-        times (list of datetime objects): time_local with datapoints below minimum MSAS removed.
-        data (list of floats): msas with datapoints below minimum MSAS value removed.
+        list of datetime objects: time_local with datapoints below minimum MSAS removed.
+        list of floats: msas with datapoints below minimum MSAS value removed.
     """
     times, data = [], []
 
@@ -283,21 +282,57 @@ def restricted_values(threshold):
     
     return times, data
 
+def find_nomoon_nocloud():
+    """
+    Finds all dates for which the moon is no brighter than 30% and cloud cover never exceeds 15%.
+
+    Returns:
+        list of datetime.date objects: list of dates meeting the above criteria
+    """
+    references = []
+    dates = get_unique_dates(time_local)
+    for i in range(len(dates)):
+        date = dates[i]
+        printProgressBar(i, len(dates), 'Finding sun references: ', length=50)
+        if((weather.dim_moon(date)) and weather.no_clouds(date)):
+            references.append(date)
+    
+    return references
+
+def get_clear_nights():
+    """
+    Finds all dates for which cloud cover never exceeds 15%.
+
+    Returns: 
+        list of datetime.date objects: list of dates meeting the above criteria
+    """
+    nights = []
+    for date in get_unique_dates(time_local):
+        if(weather.no_clouds(date)):
+            nights.append(date)
+
+    print(f'Clear nights found: {len(nights)}')
+    return nights
+
+################################################################################################
+##################################### TERMINAL MANAGEMENT ######################################
+################################################################################################
+
 def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', printEnd = "\r"):
     """
+    CREDIT TO THIS GUY ON STACK OVERFLOW: https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
     
-    CREDIT TO SOME GUY ON STACK OVERFLOW: https://stackoverflow.com/questions/3173320/text-progress-bar-in-terminal-with-block-characters
-    
-    Call in a loop to create terminal progress bar
-    @params:
-        iteration   - Required  : current iteration (Int)
-        total       - Required  : total iterations (Int)
-        prefix      - Optional  : prefix string (Str)
-        suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
-        length      - Optional  : character length of bar (Int)
-        fill        - Optional  : bar fill character (Str)
-        printEnd    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    Call in a loop to create terminal progress bar.
+
+    Args:
+        iteration (int): current iteration
+        total (int): total iterations
+        prefix (str): prefix string
+        suffix (str): suffix string
+        decimals (int): number of decimals in percent complete
+        length (int): character length of bar
+        fill (int): bar fill character
+        printEnd (str): end character
     """
     percent = ("{0:." + str(decimals) + "f}").format(100 * ((iteration+1) / float(total)))
     filledLength = int(length * (iteration+1) // total)
@@ -308,15 +343,7 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
         print()
 
 def clear_terminal():
+    """
+    Clears terminal output history.
+    """
     os.system('cls' if os.name == 'nt' else 'clear')
-
-def find_nomoon_nocloud():
-    references = []
-    dates = get_unique_dates(time_local)
-    for i in range(len(dates)):
-        date = dates[i]
-        printProgressBar(i, len(dates), 'Finding sun references: ', length=50)
-        if((weather.dim_moon(date)) and weather.no_clouds(date)):
-            references.append(date)
-    
-    return references

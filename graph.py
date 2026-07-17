@@ -23,6 +23,9 @@ msas_night_threshold = 17.0
 timeFormat = mdates.DateFormatter('%H:%M')
 
 def update_time_format():
+    """
+    Updates the time formatting after the location has been initialized.
+    """
     return mdates.DateFormatter('%H:%M', tz=parse.location.timezone)
 
 def graph_quality(filter_type):
@@ -39,9 +42,9 @@ def graph_quality(filter_type):
     plt.figure()
 
     if(filter_type == 'by value'):
-        x, y = parse.restricted_values(msas_night_threshold)
+        x, y = parse.values_by_threshold(msas_night_threshold)
     elif(filter_type == 'by dawn/dusk'):
-        x, y = parse.night_time_values()
+        x, y = parse.values_dusk_to_dawn(parse.time_local, parse.msas)
     elif(filter_type == 'none'):
         x, y = parse.time_local, parse.msas
     else:
@@ -112,9 +115,9 @@ def graph_quality_with_event_markers_single_date(date):
     """
     plt.figure()
 
-    sunset, sunrise, all_data = get_all_data(date)
+    all_data = weather.get_all_data(date)
 
-    times, vals = parse.get_values_by_time(parse.time_local, parse.msas, sunset, sunrise)
+    times, vals = parse.get_values_by_night
     plt.plot(times, vals) # Plot time on x-axis, MSAS on y-axis
 
     for label, time in (all_data).items():
@@ -133,11 +136,21 @@ def graph_quality_with_event_markers_single_date(date):
     plt.show()
 
 def graph_all_weather(date):
-    sunset, sunrise, all_data = get_all_data(date)
+    """
+    Graphs MSAS vs. time with weather data. Sun and moon events appear overlaid on the MSAS graph,
+    and cloud cover data appears as a second graph below the first.
+
+    Args:
+        date (datetime.date object): date to graph weather for
+    
+    Returns:
+        fig, axs: graph output
+    """
+    all_data = weather.get_all_data(date)
 
     fig, axs = plt.subplots(2, 1, sharex=True)
 
-    times, vals = parse.get_values_by_time(parse.time_local, parse.msas, sunset, sunrise)
+    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, date)
     axs[0].plot(times, vals) # Plot time on x-axis, MSAS on y-axis
 
     for label, time in (all_data).items():
@@ -151,7 +164,8 @@ def graph_all_weather(date):
     axs[0].set_ylim(7, 22)
     axs[0].invert_yaxis() # Flip y-axis upside down as specified by Tim
 
-    weather_times, cloud_data = weather.from_big_weather_night(date)
+    weather_times, cloud_data = weather.from_all_weather_night(date)
+
     axs[1].plot(weather_times, cloud_data, color='tomato')
     axs[1].set_ylabel("Cloud Cover (%)")
     axs[1].set_xlabel("Time")
@@ -167,7 +181,10 @@ def graph_max_quality(filter):
     """
     Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
     during the night changes as the year progresses. The bottom graph shows how the time at which 
-    the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
+    the MSAS value is reached changes as the year progresses. Works best with a large dataset.
+
+    Args:
+        filter (boolean): removes days with bad weather if enabled 
     """
     if(filter):
         qualities, time, dates = weather.remove_bad_days(parse.max_quality_over_time())
@@ -188,58 +205,7 @@ def graph_max_quality(filter):
     axs[1].set_ylabel("Time of Max MSAS")
     axs[1].set_title("Time of Max MSAS by Date")
 
-    plt.grid()
-    plt.show()
-
-def get_all_data(date):
-    # TODO: There might be a more efficient way to do this...
-    # All of this crazy code is trying to fix the fact that Astral will return data for a day
-    # as defined by midnight to midnight rather than data for the night as defined by dusk to
-    # dawn, so we have to get some data for the date on which the night starts and some for the
-    # date on which the night ends and handle that data accordingly.
-
-    tomorrow = date + timedelta(days = 1)
-    
-    sun_data = weather.sun_times(parse.location, date)
-    sun_data_tomorrow = weather.sun_times(parse.location, tomorrow)
-    moon_data = weather.moon_times(parse.location, date)
-    moon_data_tomorrow = weather.moon_times(parse.location, tomorrow)
-
-    all_data = {}
-    all_data['dusk'] = sun_data['dusk']
-    all_data['sunset'] = sun_data['sunset']
-    all_data['dawn'] = sun_data_tomorrow['dawn']
-    all_data['sunrise'] = sun_data_tomorrow['sunrise']
-
-    sunrise = all_data['sunrise']
-    sunset = all_data['sunset']
-
-    try:
-        if(sunset <= moon_data['moonset'] <= sunrise):
-            all_data['moonset'] = moon_data['moonset']
-        elif(sunset <= moon_data_tomorrow['moonset'] <= sunrise):
-            all_data['moonset'] = moon_data_tomorrow['moonset']
-
-    except TypeError: #Handles case where moonrise goes from 11:59 to midnight
-        if(sunset <= moon_data_tomorrow['moonset'] <= sunrise):
-            all_data['moonset'] = moon_data_tomorrow['moonset']
-    except KeyError:
-        pass
-
-    try:
-        if(sunset <= moon_data['moonrise'] <= sunrise):
-            all_data['moonrise'] = moon_data['moonrise']
-        elif(sunset <= moon_data_tomorrow['moonrise'] <= sunrise):
-            all_data['moonrise'] = moon_data_tomorrow['moonrise']
-
-    except TypeError: #Handles case where moonrise goes from 11:59 to midnight
-        if(sunset <= moon_data_tomorrow['moonrise'] <= sunrise):
-            all_data['moonrise'] = moon_data_tomorrow['moonrise']
-    except KeyError:
-        pass
-
-    return sunset, sunrise, all_data
-
+    return fig, axs
 
 def test_fit():
     """
@@ -247,8 +213,8 @@ def test_fit():
     during the night changes as the year progresses. The bottom graph shows how the time at which 
     the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
     """
-    qualities, time, dates = parse.max_quality_over_time()
-    filtered_dates, filtered_vals = weather.filter_no_moon(qualities, time, dates)
+    qualities, _, dates = parse.max_quality_over_time()
+    filtered_dates, filtered_vals = weather.filter_no_moon(qualities, dates)
 
     plt.scatter(dates, qualities, color='red')
     plt.scatter(filtered_dates, filtered_vals, color='blue')
@@ -259,29 +225,29 @@ def test_fit():
 
     plt.grid()
     plt.show()
-
-def test_prediction(date):
-    fig, axs = graph_all_weather(date)
-    times, vals = predict.make_prediction(date)
-
-    axs[0].plot(times, vals, color='green')
-    return fig, axs
-
-def just_plot_it(x, y):
-    plt.plot(x,y)
-    plt.gca().invert_yaxis()
     
 def graph_fit(date):
+    """
+    Graphs max MSAS values across each date in the dataset with fit curve overlaid.
+    """
     fig, axs = graph_all_weather(date)
     times, vals = predict.make_prediction(date)
+    times_2, vals_2 = predict.make_prediction(date, consider_moon=False)
 
     axs[0].plot(times, vals, color='green')
+    axs[0].plot(times_2, vals_2, color='purple')
+
     return fig, axs
 
 def graph(graph, date=None, filter='none'):
+    """
+    A function to make graphs and overlay graphs on top of each other.
+    """
     match(graph):
         case 'test-prediction':
-            fig, axs = test_prediction(date)
+                fig, axs = graph_all_weather(date)
+                times, vals = predict.make_prediction(date)
+                axs[0].plot(times, vals, color='green')
         case 'date-with-weather':
             fig, axs = graph_all_weather(date)
         case 'date-with-fit':

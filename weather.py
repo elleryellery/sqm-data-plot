@@ -11,15 +11,14 @@ import graph
 from scipy.integrate import trapezoid
 import numpy as np
 
-big_times, big_clouds = [], []
+all_times, all_clouds = [], []
 
 # This file is for handling information about the weather. It also holds the Location class because
 # we really only need location data so that we can get weather information.
 
 class Location:
     """
-    A class for storing data about the location where the data was taken. Not going to bother
-    describing each parameter -- they are pretty self explanatory.
+    A class for storing data about the location where the data was taken.
     """
     def __init__(self, latitude, longitude, name, timezone):
         self.latitude = latitude
@@ -37,22 +36,29 @@ class Location:
         self.name = name 
     
     def set_timezone(self, timezone):
-        self.timezone = ZoneInfo(timezone) # Because it will be upset if it's just a string
+        self.timezone = ZoneInfo(timezone)
     
-    def out(self): #For quickly printing out information about the location.
+    def out(self):
+        """
+        Quickly print out information about the location.
+        """
         print(f'Location: {self.name} (Lat {self.latitude} / Long {self.longitude} / Time: {self.timezone})')
-    
+
+################################################################################################
+################################### MOON AND SUN TIMESTAMPS ####################################
+################################################################################################
+
 def sun_times(location, date):
     """
     Returns a dictionary with times of important solar events on a specified day.
-    NOTE: Only works within United States. Don't know why we'd need it otherwise.
+    NOTE: Currently only works within the United States.
     
     Args:
         location (weather.Location object): The location at which to find sun data.
         date (date.date() object): The date to call sun data for.
 
     Returns:
-        sun_data (dictionary of datetime objects): A dictionary containing important solar events. Available keys are:
+        dictionary of datetime objects: A dictionary containing important solar events. Available keys are:
             "dawn", "dusk", "noon", "sunrise", "sunset"
     """
     # Uses Astral API to get sun event data
@@ -65,14 +71,14 @@ def sun_times(location, date):
 def moon_times(location, date):
     """
     Returns a dictionary with times of important lunar events on a specified day.
-    NOTE: Only works within United States. Don't know why we'd need it otherwise.
+    NOTE: Currently only works within the United States.
     
     Args:
         location (weather.Location object): The location at which to find moon data.
         date (date.date() object): The date to call moon data for.
 
     Returns:
-        sun_data (dictionary of datetime objects): A dictionary containing important solar events. Available keys are:
+        dictionary of datetime objects: A dictionary containing important solar events. Available keys are:
             "moonrise", "moonset"
     """
     # Uses Astral API to get moon event data
@@ -93,10 +99,124 @@ def moon_times(location, date):
 
     return moon_data
 
+def sunrise(date):
+    """
+    Returns a datetime object representing the sunrise time on a given date.
+    """
+    return get_all_data(date)['sunrise']
+
+def sunset(date):
+    """
+    Returns a datetime object representing the sunset time on a given date.
+    """
+    return get_all_data(date)['sunset']
+
+def dawn(date):
+    """
+    Returns a datetime object representing the dawn time on a given date.
+    """
+    return get_all_data(date)['dawn']
+
+def dusk(date):
+    """
+    Returns a datetime object representing the dusk time on a given date.
+    """
+    return get_all_data(date)['dusk']
+
+def moonrise(date):
+    """
+    Returns a datetime object representing the moonrise time on a given date.
+    """
+    return get_all_data(date)['moonrise']
+
+def moonset(date):
+    """
+    Returns a datetime object representing the moonset time on a given date.
+    """
+    return get_all_data(date)['moonset']
+
 def moon_illumination(date):
+    """
+    Returns the percent illumination of the moon as a float from 0.0-100.0.
+    """
     return ephem.Moon(date).moon_phase * 100.0
 
+def get_all_data(date):
+    """
+    Gets all sun and moon data in a dictionary. Valid keys are: "dusk", "sunset", "dawn",
+    "sunrise", "moonset", "moonrise".
+
+    Args:
+        date (datetime.date object): date on which the night begins
+
+    Returns:
+        dictionary of datetime objects: sun and moon event data
+    """
+
+    tomorrow = date + timedelta(days = 1)
+    
+    sun_data = sun_times(parse.location, date)
+    sun_data_tomorrow = sun_times(parse.location, tomorrow)
+    moon_data = moon_times(parse.location, date)
+    moon_data_tomorrow = moon_times(parse.location, tomorrow)
+
+    all_data = {}
+    all_data['dusk'] = sun_data['dusk']
+    all_data['sunset'] = sun_data['sunset']
+    all_data['dawn'] = sun_data_tomorrow['dawn']
+    all_data['sunrise'] = sun_data_tomorrow['sunrise']
+
+    sunrise = all_data['sunrise']
+    sunset = all_data['sunset']
+
+    # All of this crazy code is trying to fix the fact that Astral will return data for a day
+    # as defined by midnight to midnight rather than data for the night as defined by dusk to
+    # dawn, so we have to get some data for the date on which the night starts and some for the
+    # date on which the night ends and handle that data accordingly.
+    try:
+        if(sunset <= moon_data['moonset'] <= sunrise):
+            all_data['moonset'] = moon_data['moonset']
+        elif(sunset <= moon_data_tomorrow['moonset'] <= sunrise):
+            all_data['moonset'] = moon_data_tomorrow['moonset']
+
+    except TypeError: #Handles case where moonrise goes from 11:59 to midnight
+        if(sunset <= moon_data_tomorrow['moonset'] <= sunrise):
+            all_data['moonset'] = moon_data_tomorrow['moonset']
+    except KeyError:
+        pass
+
+    try:
+        if(sunset <= moon_data['moonrise'] <= sunrise):
+            all_data['moonrise'] = moon_data['moonrise']
+        elif(sunset <= moon_data_tomorrow['moonrise'] <= sunrise):
+            all_data['moonrise'] = moon_data_tomorrow['moonrise']
+
+    except TypeError: #Handles case where moonrise goes from 11:59 to midnight
+        if(sunset <= moon_data_tomorrow['moonrise'] <= sunrise):
+            all_data['moonrise'] = moon_data_tomorrow['moonrise']
+    except KeyError:
+        pass
+
+    return all_data
+
+################################################################################################
+################################# GETTING WEATHER CONDITIONS ###################################
+################################################################################################
+
 def weather(location, date):
+    """
+    Returns forecasted cloud cover for a given date and location using the OpenMeteo API. Note that
+    each request takes several seconds.
+
+    Args:
+        location (Location object): the location 
+
+    Returns:
+        list of datetime objects: Cloud cover timestamps. These will be hourly.
+        list of integers: Forecasted cloud cover percentage from 0-100. The API seems
+            to do this in increments no smaller than 10%.
+    """
+
     url = (
     "https://archive-api.open-meteo.com/v1/archive"
     f"?latitude={location.latitude.strip().replace('+', '')}"
@@ -118,7 +238,18 @@ def weather(location, date):
 
     return times, clouds
 
-def big_weather(location):
+def all_weather(location):
+    """
+    Stores weather forecast for the entire dataset to prevent repeated API calls. This can be
+    called when weather information needs to be updated, but should not be used repeatedly
+    within loops.
+
+    Args:
+        location (Location object): The location to retrieve forecasts for.
+
+    Returns:
+        list of datetime objects:
+    """
     dates = parse.get_unique_dates(parse.time_local)
     url = (
     "https://archive-api.open-meteo.com/v1/archive"
@@ -141,48 +272,73 @@ def big_weather(location):
 
     return times, clouds
 
-def from_big_weather_night(date):
-    sunset, sunrise, all_data = graph.get_all_data(date)
-    return parse.get_values_by_time(big_times, big_clouds, sunset - timedelta(minutes=30), sunrise + timedelta(minutes=30))
+def from_all_weather_night(date):
+    """
+    Returns weather data for a specified date by referencing the last API call (i.e. the 
+    "big_weather" method output). This way, there is no need to make a new API call.
 
-def update_big_weather():
+    Returns:
+        list of datetime objects: timestamps
+        list of integers: cloud cover percentage as an integer (0-100)
+    """
+    return parse.get_values_by_time(all_times, all_clouds, sunset(date) - timedelta(minutes=30), sunrise(date) + timedelta(minutes=30))
+
+def update_all_weather():
+    """
+    Update global weather data using all_weather() method (a single API call).
+    """
     print("\rUpdating weather data...", end="", flush=True)
-    global big_times
-    global big_clouds
 
-    big_times, big_clouds = big_weather(parse.location)
+    global all_times
+    global all_clouds
+
+    all_times, all_clouds = all_weather(parse.location)
     print("Done!")
 
-def bad_day(location, date, verbose=False):
+################################################################################################
+################################## WEATHER CONDITION FILTERS ###################################
+################################################################################################
+
+def bad_day(date):
+    """
+    Returns whether a date has bad weather, defined as cloud cover above 50% lasting more than
+    50% of the night.
+
+    Returns:
+        boolean: whether or not the day has bad weather
+    """
     cloud_cover_threshold = 50.0
     percent_of_night_threshold = 0.5
 
-    times, clouds = from_big_weather_night(date)
+    _, clouds = from_all_weather_night(date)
     num_bad_datapoints = 0
 
     for point in clouds:
         if point > cloud_cover_threshold:
             num_bad_datapoints += 1
 
-    if(verbose):
-        print('/////// DATA //////')
-        print(clouds)
     try:
         percent = num_bad_datapoints / float(len(clouds))
         result = percent > percent_of_night_threshold
 
-        if(verbose):
-            print('/////// RESULT ///////')
-            print(f'{num_bad_datapoints}/{float(len(clouds))} -> {percent} -> {result}')
-
         return result
+    
     except ZeroDivisionError:
-        if(verbose):
-            print('Zero Division Error')
-
         return True
     
 def remove_bad_days(data):
+    """
+    Filters a dataset by removing bad days (see bad_day() for definition of a bad day).
+
+    Args:
+        data (list of floats, list of datetime objects, list of datetime.date objects): 
+            msas, timestamps, and dates (respectively)
+    
+    Returns:
+        list of floats: filtered msas values
+        list of datetime objects: filtered timestamps
+        list of datetime.date objects: filtered dates
+    """
     msas, times, dates = data
 
     filtered_times = []
@@ -193,9 +349,9 @@ def remove_bad_days(data):
     rejected = []
 
     for i in range(len(dates)):
-        parse.printProgressBar(i, len(dates), 'Removing bad data (this may take several minutes): ', length=40)
+        parse.printProgressBar(i, len(dates), 'Removing bad data: ', length=40)
         
-        if(not bad_day(parse.location, dates[i])):
+        if(not bad_day(dates[i])):
             filtered_times.append(times[i])
             filtered_msas.append(msas[i])
             filtered_dates.append(dates[i])
@@ -206,13 +362,26 @@ def remove_bad_days(data):
     return filtered_msas, filtered_times, filtered_dates
 
 def dim_moon(date):
+    """
+    Returns whether the moon illumination on a certain date is less than 30%.
+    """
     illumination = moon_illumination(date)
 
-    return illumination <= 30.0
+    return illumination <= 25.0
 
 def no_moon(date):
-    sunset, sunrise, all_data = graph.get_all_data(date)
+    """
+    Returns whether the moon has negligible effects on a certain date. Moon is considered negligible
+    if either of the following conditions are met:
+        - Moon illumination is less than 25%.
+        - Moon sets before sunset and rises after sunrise.
 
+    Args:
+        date (datetime.date): date to check
+    
+    Returns:
+        boolean: whether either condition for negligible moon conditions are met
+    """
     tomorrow = date + timedelta(days=1)
     limit1 = datetime.datetime(tomorrow.year, tomorrow.month, tomorrow.day, 2, 0, 0, tzinfo=parse.location.timezone)
     limit2 = datetime.datetime(date.year, date.month, date.day, 23, 30, 0, tzinfo=parse.location.timezone)
@@ -222,22 +391,22 @@ def no_moon(date):
     no_moonrise = False
 
     try:
-        moonrise = all_data['moonrise']
+        moonrise_time = moonrise(date)
     except KeyError:
-        moonrise = datetime.datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=parse.location.timezone)
+        moonrise_time = datetime.datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=parse.location.timezone)
         no_moonrise = True
 
     try:
-        moonset = all_data['moonset']  
+        moonset_time = moonset(date)
     except KeyError:
-        moonset = datetime.datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=parse.location.timezone)
+        moonset_time = datetime.datetime(date.year, date.month, date.day, 0, 0, 0, tzinfo=parse.location.timezone)
         no_moonset = True
 
     try:
-        if((moonrise <= limit2 or no_moonrise) and (moonset >= limit1 or no_moonset)):
+        if((moonrise_time <= limit1 or no_moonrise) and (moonset_time >= limit2 or no_moonset)):
             no_moon = False
         
-        if(moon_illumination(date) <= 25.0):
+        if(dim_moon(date)):
             no_moon = True
         
     except:
@@ -246,7 +415,19 @@ def no_moon(date):
     return no_moon
 
 
-def filter_no_moon(vals, times, dates):
+def filter_no_moon(vals, dates):
+    """
+    Filters a dataset by removing dates where the moon affects MSAS values.
+
+    Args:
+        vals (list of floats): MSAS values
+        times (list of datetime objects): timestamps
+        dates (list of datetime.date objects): dates
+    
+    Returns:
+        list of datetime.date objects: filtered dates
+        list of floats: filtered MSAS values
+    """
     dates_filtered = []
     vals_filtered = []
 
@@ -254,27 +435,44 @@ def filter_no_moon(vals, times, dates):
         if(no_moon(dates[i])):
             dates_filtered.append(dates[i])
             vals_filtered.append(vals[i])
-            verdict = 'Passed'
             
     return dates_filtered, vals_filtered
 
-def find_moon_references(vals, dates):
+def find_moon_effect_references(dates):
+    """
+    Finds dates that serve as good references for studying the effects of the moon on MSAS values.
+
+    Args:
+        vals (list of floats): MSAS values
+        dates (list of datetime.date objects): dates to check
+    
+    Returns:
+        list of datetime.date objects: dates that are moon references
+    """
     references = []
-    data = []
     for i in range(len(dates)):
         parse.printProgressBar(i, len(dates), 'Searching for moon reference dates: ', length=50)
         date = dates[i]
-        if(is_moon_reference(date)):
+        if(is_moon_effect_reference(date)):
             references.append(date)
-            data.append(vals)
 
     return references
 
-def is_moon_reference(date):
-    sunset, sunrise, all_data = graph.get_all_data(date)
+def is_moon_effect_reference(date):
+    """
+    Checks whether a date would be a good data point for studying the effect of the moon on MSAS
+    values. A good reference point meets the following qualities:
+        - Moon rises at some point between sunset and sunrise
+        - Night is clear (using the clear_day() method)
 
+    Args:
+        date (datetime.date object)
+
+    Returns:
+        boolean: whether or not the date would be a good reference date
+    """
     try:
-        moonrise = all_data['moonrise']
+        moonrise = moonrise(date)
     except:
         return False
     
@@ -285,14 +483,26 @@ def is_moon_reference(date):
     if not(limit2 <= moonrise <= limit1):
         return False
 
-    times, clouds = from_big_weather_night(date)
+    times, clouds = from_all_weather_night(date)
 
-    if(not clear_day(times, clouds, date)):
+    if(not clear_day(date)):
         return False
 
     return True
         
-def clear_day(times, clouds, date):
+def clear_day(date):
+    """
+    Returns whether a night is considered relatively clear of clouds. Determined by the integral
+    of the cloud cover over the whole night.
+
+    Args:
+        times (list of datetime objects): timestamps
+        clouds (list of floats): cloud cover values
+
+    Returns:
+        boolean: whether the night is clear
+    """
+    times, clouds = from_all_weather_night(date)
     timestamps = np.fromiter((t.timestamp() for t in times), dtype=float)
     clouds[0] = 0
     clouds[-1] = 0
@@ -303,7 +513,17 @@ def clear_day(times, clouds, date):
     return clear
 
 def no_clouds(date):
-    times, clouds = from_big_weather_night(date)
+    """
+    Returns whether the night has no clouds. This is defined as having clouds never exceeding
+    15% cloud cover.
+
+    Args:
+        date (datetime.date): date to check
+    
+    Returns:
+        boolean: whether the night meets the criteria specified above
+    """
+    _, clouds = from_all_weather_night(date)
     for point in clouds:
         if(point > 0.15):
             return False

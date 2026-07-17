@@ -2,15 +2,8 @@ from tkinter.filedialog import askopenfilenames
 import parse
 import graph
 import weather
-import os
 import datetime
 import time
-import predict
-
-# I changed this file so that it can do a nice little menu in the terminal that responds to 
-# user prompts. If you want to add features to the menu, be sure to update the menu_prompt()
-# method. If you want to remove the menu prompt feature to test out code manually, scroll to the
-# bottom of the file.
 
 def read_file():
     filenames = askopenfilenames(filetypes=[("DAT File", "*.dat")])
@@ -29,10 +22,14 @@ def read_file():
     
     print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Number of duplicates: {parse.num_duplicates}')
 
-    parse.time_utc, parse.time_local, parse.temp, parse.count, parse.freq, parse.msas = parse.sort_all()
+    parse.sort_all()
 
     graph.timeFormat = graph.update_time_format()
-    weather.update_big_weather()
+    weather.update_all_weather()
+
+################################################################################################
+###################################### TERMINAL PROMPTING ######################################
+################################################################################################
 
 def filter_prompt():
     print('Available data filter styles:')
@@ -62,7 +59,7 @@ def menu_prompt():
     print('  4. Graph quality with markers for a specified night.')
     print('  5. Graph maximum quality over all nights.')
     print('  6. Add another file to the dataset.')
-    print('  7. Create predicted values for a date.')
+    print('  7. Test prediction model on a date in the past.')
     print('  8. Test baseline fit.')
 
     feature = input('Select a feature: ')
@@ -77,14 +74,14 @@ def menu_prompt():
         case '3':
             for date in parse.get_unique_dates(parse.time_local)[:-1]:
                 #graph.graph_quality_with_event_markers_single_date(date)
-                graph.graph_all_weather(date)
+                graph.graph('date-with-weather', date=date)
 
         case '4':
             input_date = input('Please input a date in the format YYYY/MM/DD: ')
             year, day, month = input_date.split('/')
             date = datetime.date(int(year), int(day), int(month))
-            weather.bad_day(parse.location, date, verbose=True)
-            graph.graph_all_weather(date)
+            weather.bad_day(date)
+            graph.graph('date-with-weather', date=date)
 
         case '5':
             filter = input('Remove datapoints from cloudy days? (Y/N)') == 'Y'
@@ -105,25 +102,15 @@ def menu_prompt():
         case _:
             print('Unknown feature.')
 
+################################################################################################
+############################################# DRIVER ###########################################
+################################################################################################
+
 # Use the below code to test features with a text input menu. Or, comment it out and
-# add your own code to test.
+# add your own code to test specific features.
 
-def clear_terminal():
-    os.system('cls' if os.name == 'nt' else 'clear')
+read_file() # I recommend against removing this line!
 
-read_file()
-
-while(True):
+while(True): # Runs the regular terminal user interface
     menu_prompt()
-    clear_terminal()
-
-#for date in parse.find_nomoon_nocloud():
-    #graph.graph('date-with-fit', date=date)
-
-#predict.get_moon_factor()
-
-#predict.get_cloud_factor(0)
-
-#graph.test_fit()
-#msas, times, dates = parse.max_quality_over_time()
-#weather.no_moon(msas[0:], times[0:], dates[0:])
+    parse.clear_terminal()

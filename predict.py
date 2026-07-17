@@ -12,26 +12,127 @@ import matplotlib.pyplot as plt
 
 prediction_timestep = 120
 
+################################################################################################
+################################### MATHEMATICAL FUNCTIONS #####################################
+################################################################################################
+
 def sinusoid(x, a, b, c, d):
+    """
+    Returns the result of a sinusoid function: a*sin(bx + c) + d
+    Can take numpy arrays.
+    """
     return a*(np.sin(b*x + c)) + d
 
 def line(x, m, b):
+    """
+    Returns the result of a linear function: mx + b
+    """
     return m*x + b
 
 def e(x, a, b, c, d):
+    """
+    Returns the result of an exponential function: a*e^(bx + c) + d
+    Can take numpy arrays.
+    """
     return a*np.exp(b*x + c) + d
 
 def baseline_by_average():
-    qualities, times, dates = parse.max_quality_over_time()
-    return sum(qualities) / len(qualities) # Return average max MSAS value over all date points
+    """
+    Returns the average maximum MSAS value over all dates.
+    """
+    qualities, _, _ = parse.max_quality_over_time()
+    return sum(qualities) / len(qualities)
+
+def sigmoid(x, x0, k):
+    """
+    Returns a sigmoid model: 1 / (1 + e^(-k*(x-x0)))
+    Can take numpy arrays.
+    """
+    return 1/(1 + np.exp(-k*(x-x0)))
+
+################################################################################################
+###################################### MASTER PREDICTION #######################################
+################################################################################################
+
+def make_prediction(date, consider_date=True, consider_moon=True, consider_clouds=True):
+    """
+    Predicts a dataset for a specified date.
+
+    Args:
+        date (datetime.date object): date to make prediction for
+        consider_date (boolean): whether to account for annual sinusoidal effect
+        consider_moon (boolean): whether to account for moon effects
+        consider_clouds (boolean): whether to account for cloud cover
+
+    Returns:
+        list of datetime objects: timestamps
+        list of floats: predicted MSAS dataset
+    """
+    print('Finding solar parameters...')
+    times, predictions = predict_sky_model(date)
+
+    if(consider_date): 
+        print('Considering sinusoidal effect...') 
+        delta = get_baseline_by_date(date)
+        print(delta) 
+        predictions = [p + delta for p in predictions]
+
+    if(consider_moon):
+        print('Considering moon effects...')
+        period = predict_moon_period(date)
+        illumination = weather.moon_illumination(date)
+        print(illumination)
+        moon_factor = get_moon_factor_manual(illumination)
+        print(moon_factor)
+    else:
+        moon_factor = 0
+        period = 1
+    
+    sunset = weather.sunset(date)
+    sunset_num = sunset.timestamp()
+
+    try:
+        moonrise_num = weather.moonrise(date).timestamp()
+    except: # To handle for no moonrise
+        moonrise_num = 0
+
+    try:
+        moonset_num = weather.moonset(date).timestamp()
+    except: # To handle for no moonset
+        moonset_num = 0
+
+    print('Updating predictions...')
+    for i in range(len(times)):
+        time = times[i] + sunset_num
+        moon_diff = moonrise_model(time, moonrise_num, period, moon_factor)
+        predictions[i] = predictions[i] - abs(moon_diff)
+
+    times = [datetime.datetime.fromtimestamp(t + sunset_num).replace(tzinfo=parse.location.timezone) for t in times]
+    predictions = [float(p) for p in predictions]
+
+    print('Done!')
+    return times, predictions     
+
+################################################################################################
+##################################### BASELINE PREDICTION ######################################
+################################################################################################
 
 def get_baseline_curve():
-    unfiltered_qualities, unfiltered_times, unfiltered_dates = parse.max_quality_over_time()
-    dates, msas = weather.filter_no_moon(unfiltered_qualities, unfiltered_times, unfiltered_dates)
+    """
+    Returns parameters defining a sinusoidal curve fit to the maximum MSAS values over all
+    dates.
+
+    Returns:
+        list of floats: optimized parameters for the sinusoid fit (a, b, c, d)
+        int: timestamp (as a number) for the first timestamp in the dataset (this can be used
+            to offset the values back after calculation)
+    """
+    unfiltered_qualities, _, unfiltered_dates = parse.max_quality_over_time()
+    dates, msas = weather.filter_no_moon(unfiltered_qualities, unfiltered_dates)
 
     dates = [datetime.datetime(t.year, t.month, t.day, 0, 0, 0).timestamp() for t in dates]
     t0 = dates[0]
-    x = np.array(dates) - t0
+    x = np.array(dates) - t0 # Scipy gets confused because the timestamps are too large
 
     p0 = [
         0.5,
@@ -39,11 +140,19 @@ def get_baseline_curve():
         0,
         np.mean(msas)
     ]
-    popt, pcov = curve_fit(sinusoid, x, msas, p0=p0)
+
+    popt, _ = curve_fit(sinusoid, x, msas, p0=p0)
 
     return popt, t0
 
 def get_baseline_graph_data():
+    """
+    Returns a dataset for graphing the sinusoid generated by get_baseline_curve().
+
+    Returns:
+        list of datetime objects: timestamps
+        list of floats: MSAS values
+    """
     params, t0 = get_baseline_curve()
     a, b, c, d = params
 
@@ -58,141 +167,32 @@ def get_baseline_graph_data():
     return times, vals
 
 def get_baseline_by_date(date):
+    """
+    Returns the predicted MSAS difference caused by annual sinusoidal effects.
+    """
     params, t0 = get_baseline_curve()
     a, b, c, d = params
     x = datetime.datetime(date.year, date.month, date.day, 0, 0, 0).timestamp()
-    return sinusoid(x, a, b, c, d) - baseline_by_average()
+    return sinusoid(x - t0, a, b, c, d) - baseline_by_average()
 
-def get_moon_factor(illumination_point):
-    references = weather.find_moon_references(parse.msas, parse.get_unique_dates(parse.time_local))
-    #references = parse.get_unique_dates(parse.time_local)
-    illumination, deltas = [], []
-    for reference in references:
-        times, vals = parse.get_values_by_night(parse.time_local, parse.msas, reference)
-        sunset, sunrise, all_data = graph.get_all_data(reference)
-        moonrise = all_data['moonrise']
+def sky_model(x, baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn):
+    """
+    (CREDIT: CHATGPT because I have never heard of a sigmoid)
+    Returns a model of the effect of the sunset and sunrise on MSAS values
 
-        before_moon = parse.get_values_by_time(times, vals, moonrise - timedelta(hours=1), moonrise)[1]
-        after_moon = parse.get_values_by_time(times, vals, moonrise, moonrise + timedelta(hours=2))[1]
-        
-        if(len(before_moon) == 0):
-            continue
+    Args:
+        x (int): timestamp as an integer
+        baseline (float): predicted darkest MSAS value
+        amp_dusk (float): amplitude difference at dusk
+        t_dusk (int): timestamp of dusk as an integer
+        k_dusk (float): dusk steepness
+        amp_dawn (float): amplitude difference at dawn
+        t_dawn (int): timestamp of dawn as an integer
+        k_dawn (float): dawn steepness
 
-        pre_avg = sum(before_moon) / len(before_moon)
-        post_avg = sum(after_moon) / len(after_moon)
-        delta = post_avg - pre_avg
-
-        #print(f'Before: {pre_avg} -> After: {post_avg} (Delta = {delta})')
-        #graph.graph_all_weather(reference)
-
-        illum = weather.moon_illumination(reference)
-
-        if(delta < 0.0 and not(illum < 50.0 and delta < -0.25)):
-            deltas.append(delta)
-            illumination.append(illum)
-
-    illumination, deltas = zip(*sorted(zip(illumination, deltas)))
-
-    p0 = [
-        -1,
-        0.038,
-        -4.6,
-        0
-    ]
-
-    #params, _ = curve_fit(e, illumination, deltas, p0=p0)
-    params = p0
-    a, b, c, d = params
-
-    #print(params)
-
-    #x = np.linspace(0, 100, 5)
-    #y = e(x, a, b, c, d)
-
-    #plt.figure()
-    #plt.scatter(illumination, deltas)
-    #plt.plot(x, y, color='green')
-    #plt.grid()
-    #plt.show()
-    
-    return e(illumination_point, a, b, c, d)
-
-def get_cloud_factor(cloud_cover):
-    dates = parse.get_unique_dates(parse.time_local)
-    times_filtered, vals_filtered = weather.filter_no_moon(parse.time_local, parse.msas, dates)
-    cloud_points = []
-    msas_points = []
-    for i in range(len(dates)):
-        #parse.printProgressBar(i, len(dates), "Processing cloud cover relation: ", length=50)
-        date = dates[i]
-
-        times, msas = times_filtered, vals_filtered#parse.get_values_by_night(times_filtered, vals_filtered, date)
-
-        print(times)
-        print(msas)
-
-        weather_times, clouds = weather.from_big_weather_night(date)
-
-        for j in range(len(times)):
-            time = times[j]
-            if time.minute == 0:
-                time = datetime.datetime(time.year, time.month, time.day, time.hour, 0, 0, tzinfo=parse.location.timezone)
-                cloud_points.append(clouds[weather_times.index(time)])
-                msas_points.append(msas[j])
-        
-
-    plt.figure()
-    plt.scatter(cloud_points, msas_points)
-    plt.grid()
-    plt.show()
-
-def make_prediction(date, consider_date=True, consider_moon=True, consider_clouds=True):
-    print('Finding solar parameters...')
-    times, predictions = predict_sky_model(date)
-
-    if(consider_date): 
-        print('Considering sinusoidal effect...') 
-        delta = get_baseline_by_date(date) 
-        predictions = [p + delta for p in predictions]
-
-    if(consider_moon):
-        print('Considering moon effects...')
-        illumination = weather.moon_illumination(date)
-        moon_factor = get_moon_factor(illumination)
-    else:
-        moon_factor = 0
-    
-    sunset, sunrise, all_data = graph.get_all_data(date)
-
-    sunset_num = sunset.timestamp()
-
-    try:
-        moonrise_num = all_data['moonrise'].timestamp()
-    except: # To handle for no moonrise
-        moonrise_num = 0
-
-    try:
-        moonset_num = all_data['moonset'].timestamp()
-    except: # To handle for no moonset
-        moonset_num = 0
-
-    print('Updating predictions...')
-    for i in range(len(times)):
-        time = times[i] + sunset_num
-        if(moonrise_num < time and (moonset_num > time or moonset_num == 0)):
-            predictions[i] = predictions[i] - 0.0046*math.sqrt(-moon_factor*5.94*(time-moonrise_num))
-
-    times = [datetime.datetime.fromtimestamp(t + sunset_num).replace(tzinfo=parse.location.timezone) for t in times]
-    predictions = [float(p) for p in predictions]
-
-    print('Done!')
-    return times, predictions         
-
-def sigmoid(x, x0, k): ##FROM CHAT GPT!! WHAT IS A SIGMOID!!!
-    return 1/(1 + np.exp(-k*(x-x0)))
-
-def sky_model(x, baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn): ## FROM CHAT GPT!!!
-
+    Return:
+        float: predicted MSAS value at specified timestamp
+    """
     return (
         baseline
         - amp_dusk * sigmoid(x, t_dusk, k_dusk)
@@ -200,20 +200,29 @@ def sky_model(x, baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn): 
     )
 
 def sky_fit(date):
+    """
+    Returns parameters for a fit curve showing the effects of dawn and dusk on MSAS (i.e. an MSAS
+    graph that doesn't consider moon or clouds).
+
+    Args:
+        date (datetime.date object): date to fit curve to
+
+    Returns:
+        list of floats: parameters (baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn)
+    """
     times, vals = parse.get_values_by_night(parse.time_local, parse.msas, date)
-    _, _, all_data = graph.get_all_data(date)
 
     t0 = times[0].timestamp()
     times = [t.timestamp() - t0 for t in times]
 
-    p0 = [ ##VALUES FROM CHAT GPT!! SORRY!! I DON"T KNOW WHAT A SIGMOID IS!!
-        get_baseline_by_date(date),
-        12.0,      # dusk amplitude
-        all_data['dusk'].timestamp() - t0,      # dusk time
-        1/3600.0,       # dusk steepness
-        12.0,      # dawn amplitude
-        all_data['dawn'].timestamp() - t0,       # dawn time
-        1/3600.0        # dawn steepness
+    p0 = [
+        get_baseline_by_date(date), # baseline
+        12.0, # dusk amplitude
+        weather.dusk(date).timestamp() - t0, # dusk time
+        1/3600.0, # dusk steepness
+        12.0, # dawn amplitude
+        weather.dawn(date).timestamp() - t0, # dawn time
+        1/3600.0 # dawn steepness
     ]
 
     params, _ = curve_fit(sky_model, times, vals, p0=p0)
@@ -221,12 +230,20 @@ def sky_fit(date):
     return params
 
 def predict_sky_fit_params(date):
+    """
+    Predicts the baseline MSAS graph parameters for a specified date.
+
+    Args:
+        date (datetime.date object): date to predict parameters for
+
+    Returns:
+        list of floats: parameters (baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn)
+    """
     times, _ = parse.get_values_by_night(parse.time_local, parse.msas, date)
-    _, _, all_data = graph.get_all_data(date)
 
     t0 = times[0].timestamp()
-    dusk = all_data['dusk'].timestamp() - t0
-    dawn = all_data['dawn'].timestamp() - t0
+    dusk = weather.dusk(date).timestamp() - t0
+    dawn = weather.dawn(date).timestamp() - t0
 
     all_params = []
 
@@ -249,9 +266,20 @@ def predict_sky_fit_params(date):
     return param_predictions
 
 def predict_sky_model(date):
+    """
+    Returns a predicted baseline dataset for the specified date.
+
+    Args:
+        date (datetime.date object): date to make prediction for
+    
+    Returns:
+        list of ints: timestamps as numbers
+        list of floats: MSAS values
+    """
     baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn = predict_sky_fit_params(date)
 
-    sunset, sunrise, _ = graph.get_all_data(date)
+    sunset = weather.sunset(date)
+    sunrise = weather.sunrise(date)
 
     t0 = sunset.timestamp()
 
@@ -260,19 +288,157 @@ def predict_sky_model(date):
     print('Creating baseline model...')
     vals = sky_model(times, baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn)
 
-    return times, vals
+    return times, vals 
 
-def graph_sky_model(date):
-    sunset, sunrise, _ = graph.get_all_data(date)
+################################################################################################
+####################################### MOON PREDICTIONS #######################################
+################################################################################################
 
-    t0 = sunset.timestamp()
+def get_moon_factor(illumination_point):
+    """
+    Returns the moon factor (predicted maximum effect of the moon on MSAS).
 
-    times = np.linspace(0, sunrise.timestamp() - t0, prediction_timestep)
+    Args:
+        illumination_point (float): percent illumination of the moon
 
-    baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn = sky_fit(date)
+    Returns:
+        float: predicted effect of the moon on MSAS
+    """
+    references = weather.find_moon_effect_references(parse.get_unique_dates(parse.time_local))
+    illumination, deltas = [], []
+    for reference in references:
+        times, vals = parse.get_values_by_night(parse.time_local, parse.msas, reference)
+        moonrise = weather.moonrise(reference)
 
-    vals = sky_model(times, baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn)
+        before_moon = parse.get_values_by_time(times, vals, moonrise - timedelta(hours=1), moonrise)[1]
+        after_moon = parse.get_values_by_time(times, vals, moonrise, moonrise + timedelta(hours=2))[1]
+        
+        if(len(before_moon) == 0):
+            continue
 
-    times = [datetime.datetime.fromtimestamp(t + t0).replace(tzinfo=parse.location.timezone) for t in times]
+        pre_avg = sum(before_moon) / len(before_moon)
+        post_avg = sum(after_moon) / len(after_moon)
+        delta = post_avg - pre_avg
 
-    return times, vals
+        illum = weather.moon_illumination(reference)
+
+        if(delta < 0.0 and not(illum < 50.0 and delta < -0.25)):
+            deltas.append(delta)
+            illumination.append(illum)
+
+    illumination, deltas = zip(*sorted(zip(illumination, deltas)))
+
+    p0 = [
+        -1,
+        0.038,
+        -4.6,
+        0
+    ]
+
+    params = p0
+    a, b, c, d = params
+
+    #Temporarily overwriting to manually determined parameters for the moon illumination fit curve.
+    #Old code is before in case we want to return to it.
+
+    #params, _ = curve_fit(e, illumination, deltas, p0=p0)
+
+    #print(params)
+
+    #x = np.linspace(0, 100, 5)
+    #y = e(x, a, b, c, d)
+
+    #plt.figure()
+    #plt.scatter(illumination, deltas)
+    #plt.plot(x, y, color='green')
+    #plt.grid()
+    #plt.show()
+    
+    return e(illumination_point, a, b, c, d)
+
+def get_moon_factor_manual(illumination_point):
+    """
+    Fits moon factor to a manually determined linear function.
+    """
+    return 0.00001 * (illumination_point ** 2.75)
+
+def predict_moon_period(date):
+    """
+    Predicts the period of a sinusoidal period of the moon based on the time difference between
+    the past two moonrises.
+
+    Returns:
+        int: period in seconds
+    """
+    try:
+        moonrise_1 = weather.moonrise(date)
+        moonrise_2 = weather.moonrise(date + timedelta(days=1))
+    except:
+        try:
+            moonrise_1 = weather.moonrise(date)
+            moonrise_2 = weather.moonrise(date + timedelta(days=-1))
+        except:
+            try:
+                moonrise_1 = weather.moonrise(date + timedelta(days=1))
+                moonrise_2 = weather.moonrise(date + timedelta(days=2))
+            except:
+                return 24 * 3600 + 50 * 60
+    return (moonrise_2 - moonrise_1).total_seconds()
+
+def moonrise_model(timestamp, moonrise, period, amplitude):
+    """
+    Returns a sinusoidal model of moon effects on MSAS.
+
+    Args:
+        timestamp (int): timestamp as an integer
+        moonrise (int): time of moonrise as an integer
+        period (float): sinusoid period
+        amplitude (float): sinusoid amplitude
+
+    Returns:
+        float: predicted change in MSAS due to moon
+    """
+    b = 2*math.pi / float(period)
+    return sinusoid(timestamp, amplitude, 2*math.pi / float(period),  -b * moonrise, -abs(amplitude)/2.0)
+
+################################################################################################
+###################################### CLOUD PREDICTIONS #######################################
+################################################################################################
+
+def get_cloud_factor(cloud_cover):
+    """
+    Returns the moon factor (predicted maximum effect of the cloud cover on MSAS).
+
+    Args:
+        cloud_cover (int): percent cloud cover
+
+    Returns:
+        float: predicted effect of the cloud cover on MSAS
+    """
+    dates = parse.get_unique_dates(parse.time_local)
+    dates_filtered, vals_filtered = weather.filter_no_moon(parse.msas, dates)
+    cloud_points = []
+    msas_points = []
+    for i in range(len(dates)):
+        #parse.printProgressBar(i, len(dates), "Processing cloud cover relation: ", length=50)
+        date = dates[i]
+
+        times, msas = dates_filtered, vals_filtered#parse.get_values_by_night(times_filtered, vals_filtered, date)
+
+        print(times)
+        print(msas)
+
+        weather_times, clouds = weather.from_big_weather_night(date)
+
+        for j in range(len(times)):
+            time = times[j]
+            if time.minute == 0:
+                time = datetime.datetime(time.year, time.month, time.day, time.hour, 0, 0, tzinfo=parse.location.timezone)
+                cloud_points.append(clouds[weather_times.index(time)])
+                msas_points.append(msas[j])
+        
+
+    plt.figure()
+    plt.scatter(cloud_points, msas_points)
+    plt.grid()
+    plt.show()
