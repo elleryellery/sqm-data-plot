@@ -13,17 +13,15 @@ def read_file():
 
     for i in range(num_files):
         filename = filenames[i]
-        print(f'\rReading: {filename}', end="", flush=True)
         parse.printProgressBar(i, num_files, prefix='Upload progress: ', length=50)
         try:
             parse.parse_file(filename)
         except:
-            print(f'Error processing {filename}')
+            print(f'WARNING: Error occurred in processing \'{filename}\'.')
     
-    print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Number of duplicates: {parse.num_duplicates}')
+    print(f'Finished uploading all files in {(time.perf_counter() - start_time):.2f}s. Skipped {parse.num_duplicates} duplicate data points.')
 
     parse.sort_all()
-
     graph.timeFormat = graph.update_time_format()
     weather.update_all_weather()
 
@@ -32,6 +30,13 @@ def read_file():
 ################################################################################################
 
 def filter_prompt():
+    """
+    Returns the user-specified data filter style. Defaults to no filter if user input is not
+    recognized.
+
+    Returns:
+        str: the specified filter style ('by dawn/dusk', 'by value', or 'none')
+    """
     print('Available data filter styles:')
     print('   1. Only include values not between dusk and dawn.')
     print('   2. Only include values greater than a certain number.')
@@ -50,57 +55,86 @@ def filter_prompt():
         case _:
             print('Unknown filter value. Defaulting to none.')
             return 'none'
+        
+def date_prompt():
+    """
+    Returns a user-specified date.
+
+    Returns:
+        datetime.date: specified date
+    """
+    input_date = input('Please input a date in the format YYYY/MM/DD: ')
+    year, day, month = input_date.split('/')
+    return datetime.date(int(year), int(day), int(month))
+
+def date_prompt_string():
+    input_date = input('Please input a date in the format YYYY/MM/DD: ')
+    return input_date
 
 def menu_prompt():
+    """
+    Gives the full menu of features to view or test. Returns nothing and runs commands for
+    each feature within the match case.
+    """
     print('Available features:')
     print('  1. Graph quality over all nights.')
     print('  2. Graph quality with sunrise/sunset/moonrise/moonset markers over all nights.')
-    print('  3. Graph quality with markers for all individual nights.')
-    print('  4. Graph quality with markers for a specified night.')
+    print('  3. Graph quality with markers and weather for all individual nights.')
+    print('  4. Graph quality with markers and weather for a specified night.')
     print('  5. Graph maximum quality over all nights.')
-    print('  6. Add another file to the dataset.')
+    print('  6. View annual sinusoidal effect fit curve.')
     print('  7. Test prediction model on a date in the past.')
-    print('  8. Test baseline fit.')
+    print('  8. Add another file to the dataset.')
+    print('  9. Open command line.')
 
     feature = input('Select a feature: ')
 
     match feature:
-        case '1':
-            graph.graph_quality(filter_prompt())
+        case '1': # Graph quality over all nights
+            filter = filter_prompt()
+            cmd = f'raw-all%filter={filter}&invert'
+            graph.graph(cmd)
         
-        case '2':
-            graph.graph_quality_with_event_markers(filter_prompt())
+        case '2': # Graph quality with markers over all nights.
+            filter = filter_prompt()
+            cmd = f'raw-all%filter={filter} OVERLAY markers-all&invert'
+            graph.graph(cmd)
         
-        case '3':
+        case '3': # Graph quality with markers for all individual nights.
             for date in parse.get_unique_dates(parse.time_local)[:-1]:
-                #graph.graph_quality_with_event_markers_single_date(date)
-                graph.graph('date-with-weather', date=date)
+                date = date.year + '/' + date.month + '/' + date.day
+                cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date}&invert SPLIT weather%date={date}&grid'
+                graph.graph(cmd)
 
-        case '4':
-            input_date = input('Please input a date in the format YYYY/MM/DD: ')
-            year, day, month = input_date.split('/')
-            date = datetime.date(int(year), int(day), int(month))
-            weather.bad_day(date)
-            graph.graph('date-with-weather', date=date)
+        case '4': # Graph quality with markers for a specified night.
+            date = date_prompt_string()
+            cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date}&invert SPLIT weather%date={date}&grid'
+            graph.graph(cmd)
 
-        case '5':
-            filter = input('Remove datapoints from cloudy days? (Y/N)') == 'Y'
-            graph.graph_max_quality(filter)
+        case '5': # Graph maximum quality over all nights
+            filter = input('Filter datapoints to remove nights affected by moonlight? (Y/N)') == 'Y'
+            cmd = f'sinusoidal%filter={filter}&invert&grid'
+            graph.graph(cmd)
 
-        case '6':
+        case '6': # View annual sinusoidal effect fit curve.
+            cmd = f'sinusoidal%filter=False%color=red OVERLAY sinusoidal%filter=True%color=blue OVERLAY sinfit%color=green&invert&grid'
+            graph.graph(cmd)
+
+        case '7': # Test prediction model on a date in the past.
+            date = date_prompt_string()
+            cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date} OVERLAY prediction%date={date}%consider_moon=False%color=purple OVERLAY prediction%date={date}%color=orange&invert SPLIT weather%date={date}'
+            graph.graph(cmd)
+
+        case '8': # Add another file to the dataset.
             read_file()
 
-        case '7':
-            input_date = input('Please input a date in the format YYYY/MM/DD: ')
-            year, day, month = input_date.split('/')
-            date = datetime.date(int(year), int(day), int(month))
-            graph.graph('date-with-fit', date=date)
-        
-        case '8':
-            graph.test_fit()
-                
+        case '9':
+            cmd = input('Input command: ')
+            graph.graph(cmd)
+         
         case _:
             print('Unknown feature.')
+            
 
 ################################################################################################
 ############################################# DRIVER ###########################################
@@ -109,7 +143,7 @@ def menu_prompt():
 # Use the below code to test features with a text input menu. Or, comment it out and
 # add your own code to test specific features.
 
-read_file() # I recommend against removing this line!
+read_file() # Do not remove this line unless you know what you're doing!
 
 while(True): # Runs the regular terminal user interface
     menu_prompt()

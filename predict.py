@@ -127,21 +127,28 @@ def get_baseline_curve():
         int: timestamp (as a number) for the first timestamp in the dataset (this can be used
             to offset the values back after calculation)
     """
-    unfiltered_qualities, _, unfiltered_dates = parse.max_quality_over_time()
-    dates, msas = weather.filter_no_moon(unfiltered_qualities, unfiltered_dates)
+    try:
+        popt = parse.cache['baseline-fit-params']
+        t0 = parse.cache['baseline-fit-t0']
+    except KeyError:
+        unfiltered_qualities, _, unfiltered_dates = parse.max_quality_over_time()
+        dates, msas = weather.filter_no_moon(unfiltered_qualities, unfiltered_dates)
 
-    dates = [datetime.datetime(t.year, t.month, t.day, 0, 0, 0).timestamp() for t in dates]
-    t0 = dates[0]
-    x = np.array(dates) - t0 # Scipy gets confused because the timestamps are too large
+        dates = [datetime.datetime(t.year, t.month, t.day, 0, 0, 0).timestamp() for t in dates]
+        t0 = dates[0]
+        x = np.array(dates) - t0 # Scipy gets confused because the timestamps are too large
 
-    p0 = [
-        0.5,
-        2*np.pi/(365.25*86400),
-        0,
-        np.mean(msas)
-    ]
+        p0 = [
+            0.5,
+            2*np.pi/(365.25*86400),
+            0,
+            np.mean(msas)
+        ]
 
-    popt, _ = curve_fit(sinusoid, x, msas, p0=p0)
+        popt, _ = curve_fit(sinusoid, x, msas, p0=p0)
+
+        parse.cache['baseline-fit-params'] = popt
+        parse.cache['baseline-fit-t0'] = t0
 
     return popt, t0
 
@@ -210,22 +217,27 @@ def sky_fit(date):
     Returns:
         list of floats: parameters (baseline, amp_dusk, t_dusk, k_dusk, amp_dawn, t_dawn, k_dawn)
     """
-    times, vals = parse.get_values_by_night(parse.time_local, parse.msas, date)
+    try:
+        params = parse.cache['sky-fit-params']
+    except KeyError:
+        times, vals = parse.get_values_by_night(parse.time_local, parse.msas, date)
 
-    t0 = times[0].timestamp()
-    times = [t.timestamp() - t0 for t in times]
+        t0 = times[0].timestamp()
+        times = [t.timestamp() - t0 for t in times]
 
-    p0 = [
-        get_baseline_by_date(date), # baseline
-        12.0, # dusk amplitude
-        weather.dusk(date).timestamp() - t0, # dusk time
-        1/3600.0, # dusk steepness
-        12.0, # dawn amplitude
-        weather.dawn(date).timestamp() - t0, # dawn time
-        1/3600.0 # dawn steepness
-    ]
+        p0 = [
+            get_baseline_by_date(date), # baseline
+            12.0, # dusk amplitude
+            weather.dusk(date).timestamp() - t0, # dusk time
+            1/3600.0, # dusk steepness
+            12.0, # dawn amplitude
+            weather.dawn(date).timestamp() - t0, # dawn time
+            1/3600.0 # dawn steepness
+        ]
 
-    params, _ = curve_fit(sky_model, times, vals, p0=p0)
+        params, _ = curve_fit(sky_model, times, vals, p0=p0)
+
+        parse.cache['sky-fit-params'] = params
 
     return params
 
@@ -245,23 +257,40 @@ def predict_sky_fit_params(date):
     dusk = weather.dusk(date).timestamp() - t0
     dawn = weather.dawn(date).timestamp() - t0
 
-    all_params = []
+    try:
+        param_predictions = []
+        param_predictions.append(parse.cache['sky-fit-1'])
+        param_predictions.append(parse.cache['sky-fit-2'])
+        param_predictions.append(dusk)
+        param_predictions.append(parse.cache['sky-fit-3'])
+        param_predictions.append(parse.cache['sky-fit-4'])
+        param_predictions.append(dawn)
+        param_predictions.append(parse.cache['sky-fit-5'])
+        
+    except KeyError:
+        all_params = []
 
-    for date in parse.find_nomoon_nocloud():
-        all_params.append(sky_fit(date))
+        for date in parse.find_nomoon_nocloud():
+            all_params.append(sky_fit(date))
 
-    param_array = np.array(all_params)
-    param_predictions = []
+        param_array = np.array(all_params)
+        param_predictions = []
 
-    num_nights = param_array.shape[0]
+        num_nights = param_array.shape[0]
 
-    param_predictions.append(sum(param_array[:,0]) / num_nights)
-    param_predictions.append(sum(param_array[:,1]) / num_nights)
-    param_predictions.append(dusk)
-    param_predictions.append(sum(param_array[:,3]) / num_nights)
-    param_predictions.append(sum(param_array[:,4]) / num_nights)
-    param_predictions.append(dawn)
-    param_predictions.append(sum(param_array[:,6]) / num_nights)
+        param_predictions.append(sum(param_array[:,0]) / num_nights)
+        param_predictions.append(sum(param_array[:,1]) / num_nights)
+        param_predictions.append(dusk)
+        param_predictions.append(sum(param_array[:,3]) / num_nights)
+        param_predictions.append(sum(param_array[:,4]) / num_nights)
+        param_predictions.append(dawn)
+        param_predictions.append(sum(param_array[:,6]) / num_nights)
+
+        parse.cache['sky-fit-1'] = param_predictions[0]
+        parse.cache['sky-fit-2'] = param_predictions[1]
+        parse.cache['sky-fit-3'] = param_predictions[3]
+        parse.cache['sky-fit-4'] = param_predictions[4]
+        parse.cache['sky-fit-5'] = param_predictions[6]
 
     return param_predictions
 

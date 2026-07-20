@@ -339,25 +339,34 @@ def remove_bad_days(data):
         list of datetime objects: filtered timestamps
         list of datetime.date objects: filtered dates
     """
-    msas, times, dates = data
+    try:
+        filtered_msas = parse.cache['msas-bad-removed']
+        filtered_times = parse.cache['times-bad-removed']
+        filtered_dates = parse.cache['dates-bad-removed']
+    except KeyError:
+        msas, times, dates = data
 
-    filtered_times = []
-    filtered_msas = []
-    filtered_dates = []
+        filtered_times = []
+        filtered_msas = []
+        filtered_dates = []
 
-    approved = []
-    rejected = []
+        approved = []
+        rejected = []
 
-    for i in range(len(dates)):
-        parse.printProgressBar(i, len(dates), 'Removing bad data: ', length=40)
+        for i in range(len(dates)):
+            parse.printProgressBar(i, len(dates), 'Removing bad data: ', length=40)
+            
+            if(not bad_day(dates[i])):
+                filtered_times.append(times[i])
+                filtered_msas.append(msas[i])
+                filtered_dates.append(dates[i])
+                approved.append(dates[i])
+            else:
+                rejected.append(dates[i])
         
-        if(not bad_day(dates[i])):
-            filtered_times.append(times[i])
-            filtered_msas.append(msas[i])
-            filtered_dates.append(dates[i])
-            approved.append(dates[i])
-        else:
-            rejected.append(dates[i])
+        parse.cache['msas-bad-removed'] = filtered_msas
+        parse.cache['times-bad-removed'] = filtered_times
+        parse.cache['dates-bad-removed'] = filtered_dates
     
     return filtered_msas, filtered_times, filtered_dates
 
@@ -428,13 +437,20 @@ def filter_no_moon(vals, dates):
         list of datetime.date objects: filtered dates
         list of floats: filtered MSAS values
     """
-    dates_filtered = []
-    vals_filtered = []
+    try:
+        dates_filtered = parse.cache['no-moon-dates']
+        vals_filtered = parse.cache['no-moon-vals']
+    except KeyError:
+        dates_filtered = []
+        vals_filtered = []
 
-    for i in range(len(vals)):
-        if(no_moon(dates[i])):
-            dates_filtered.append(dates[i])
-            vals_filtered.append(vals[i])
+        for i in range(len(vals)):
+            if(no_moon(dates[i])):
+                dates_filtered.append(dates[i])
+                vals_filtered.append(vals[i])
+        
+        parse.cache['no-moon-dates'] = dates_filtered
+        parse.cache['no-moon-vals'] = vals_filtered
             
     return dates_filtered, vals_filtered
 
@@ -449,12 +465,16 @@ def find_moon_effect_references(dates):
     Returns:
         list of datetime.date objects: dates that are moon references
     """
-    references = []
-    for i in range(len(dates)):
-        parse.printProgressBar(i, len(dates), 'Searching for moon reference dates: ', length=50)
-        date = dates[i]
-        if(is_moon_effect_reference(date)):
-            references.append(date)
+    try:
+        references = parse.cache['moon-references']
+    except KeyError:
+        references = []
+        for i in range(len(dates)):
+            parse.printProgressBar(i, len(dates), 'Searching for moon reference dates: ', length=50)
+            date = dates[i]
+            if(is_moon_effect_reference(date)):
+                references.append(date)
+        parse.cache['moon-references'] = references
 
     return references
 

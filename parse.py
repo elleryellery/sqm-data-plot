@@ -9,6 +9,8 @@ count = [] # Counts // no units
 freq = [] # Frequence // Hz
 msas = [] # MSAS // mag/arcsec^2
 
+cache = {}
+
 num_duplicates = 0
 
 location = weather.Location(0.0, 0.0, "Not specified", "None") # Initial location object with default values
@@ -65,6 +67,7 @@ def parse_file(filename):
                 if(not not_duplicate):
                     global num_duplicates
                     num_duplicates += 1
+    cache.clear()
 
 def sort_all():
     """
@@ -129,6 +132,10 @@ def format_one(point):
 
     return datetime.datetime(int(year), int(month), int(day), int(hour), int(min))
 
+def get_datetimedate(input_date):
+    year, day, month = input_date.split('/')
+    return datetime.date(int(year), int(day), int(month))
+
 ################################################################################################
 ################################## RETRIEVING DATA SUBSETS #####################################
 ################################################################################################
@@ -142,10 +149,14 @@ def get_unique_dates(times):
     Returns:
         list of datetime objects: First timestamp at which data was recorded on each night.
     """
-    unique_dates = []
-    for time in times:
-        if(not time.date() in unique_dates):
-            unique_dates.append(time.date())
+    try:
+        unique_dates = cache['unique-dates']
+    except KeyError:
+        unique_dates = []
+        for time in times:
+            if(not time.date() in unique_dates):
+                unique_dates.append(time.date())
+        cache['unique-dates'] = unique_dates
     return unique_dates
 
 def get_values_by_time(timestamps, values, starttime, endtime):
@@ -235,29 +246,38 @@ def max_quality_over_time():
         list of datetime objects: The time at which the maximum MSAS value was achieved on each night.
         list of datetime objects: The dates for which data was taken.
     """
-    data = {}
+    try:
+        qualities = cache['max-qualities']
+        times = cache['max-times']
+        dates = cache['max-dates']
+    except KeyError:
+        data = {}
 
-    all_times, all_msas = values_dusk_to_dawn(time_local, msas)
+        all_times, all_msas = values_dusk_to_dawn(time_local, msas)
 
-    for i in range(len(all_times)):
-        date = all_times[i].date()
+        for i in range(len(all_times)):
+            date = all_times[i].date()
 
-        max_time = all_times[i]
-        day = 1
-        if(max_time.hour < 12): # Morning values are pushed to the next day, otherwise the plot will wrap around midnight
-            day = 2
-        max_time = datetime.datetime(2026, 1, day, max_time.hour, max_time.minute, 0)
+            max_time = all_times[i]
+            day = 1
+            if(max_time.hour < 12): # Morning values are pushed to the next day, otherwise the plot will wrap around midnight
+                day = 2
+            max_time = datetime.datetime(2026, 1, day, max_time.hour, max_time.minute, 0)
 
-        try:
-            current_maximum = data[date][1]
-            if(all_msas[i] > current_maximum):
+            try:
+                current_maximum = data[date][1]
+                if(all_msas[i] > current_maximum):
+                    data[date] = (max_time, all_msas[i])
+            
+            except KeyError:
                 data[date] = (max_time, all_msas[i])
-        
-        except KeyError:
-            data[date] = (max_time, all_msas[i])
 
-    times, qualities = map(list, zip(*data.values()))
-    dates = list(data.keys())
+        times, qualities = map(list, zip(*data.values()))
+        dates = list(data.keys())
+
+        cache['max-qualities'] = qualities
+        cache['max-times'] = times
+        cache['max-dates'] = dates
 
     return qualities, times, dates
 
@@ -289,13 +309,17 @@ def find_nomoon_nocloud():
     Returns:
         list of datetime.date objects: list of dates meeting the above criteria
     """
-    references = []
-    dates = get_unique_dates(time_local)
-    for i in range(len(dates)):
-        date = dates[i]
-        printProgressBar(i, len(dates), 'Finding sun references: ', length=50)
-        if((weather.dim_moon(date)) and weather.no_clouds(date)):
-            references.append(date)
+    try:
+        references = cache['no-moon-no-cloud']
+    except KeyError:
+        references = []
+        dates = get_unique_dates(time_local)
+        for i in range(len(dates)):
+            date = dates[i]
+            printProgressBar(i, len(dates), 'Finding sun references: ', length=50)
+            if((weather.dim_moon(date)) and weather.no_clouds(date)):
+                references.append(date)
+        cache['no-moon-no-cloud'] = references
     
     return references
 
@@ -306,12 +330,17 @@ def get_clear_nights():
     Returns: 
         list of datetime.date objects: list of dates meeting the above criteria
     """
-    nights = []
-    for date in get_unique_dates(time_local):
-        if(weather.no_clouds(date)):
-            nights.append(date)
+    try:
+        nights = cache['clear-nights']
+    except KeyError:
+        nights = []
+        for date in get_unique_dates(time_local):
+            if(weather.no_clouds(date)):
+                nights.append(date)
 
-    print(f'Clear nights found: {len(nights)}')
+        print(f'Clear nights found: {len(nights)}')
+        cache['clear-nights'] = nights
+
     return nights
 
 ################################################################################################
