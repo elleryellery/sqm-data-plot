@@ -70,20 +70,24 @@ def make_prediction(date, consider_date=True, consider_moon=True, consider_cloud
     """
     print('Finding solar parameters...')
     times, predictions = predict_sky_model(date)
+    if(consider_clouds):
+        weather_times, clouds = weather.from_all_weather_night(date)
+        if(len(weather_times) == 0):
+            weather_times, clouds = weather.forecast(date, location=parse.location)
+        weather_times = [(t.replace(tzinfo=parse.location.timezone)).timestamp() for t in weather_times]
+        weather_times.pop(0)
+        noise = np.random.normal(0, 0.4, len(times))
 
     if(consider_date): 
         print('Considering sinusoidal effect...') 
         delta = get_baseline_by_date(date)
-        print(delta) 
         predictions = [p + delta for p in predictions]
 
     if(consider_moon):
         print('Considering moon effects...')
         period = predict_moon_period(date)
         illumination = weather.moon_illumination(date)
-        print(illumination)
         moon_factor = get_moon_factor_manual(illumination)
-        print(moon_factor)
     else:
         moon_factor = 0
         period = 1
@@ -100,12 +104,17 @@ def make_prediction(date, consider_date=True, consider_moon=True, consider_cloud
         moonset_num = weather.moonset(date).timestamp()
     except: # To handle for no moonset
         moonset_num = 0
-
     print('Updating predictions...')
     for i in range(len(times)):
         time = times[i] + sunset_num
         moon_diff = moonrise_model(time, moonrise_num, period, moon_factor)
-        predictions[i] = predictions[i] - abs(moon_diff)
+        cloud_diff = 0
+        if(consider_clouds):
+            if(time > weather_times[0] and len(weather_times) > 1):
+                weather_times.pop(0)
+                clouds.pop(0)
+            cloud_diff = get_cloud_factor_manual(clouds[0]) + noise[i] * (clouds[0] / 100.0)
+        predictions[i] = predictions[i] - abs(moon_diff) - cloud_diff
 
     times = [datetime.datetime.fromtimestamp(t + sunset_num).replace(tzinfo=parse.location.timezone) for t in times]
     predictions = [float(p) for p in predictions]
@@ -253,7 +262,11 @@ def predict_sky_fit_params(date):
     """
     times, _ = parse.get_values_by_night(parse.time_local, parse.msas, date)
 
-    t0 = times[0].timestamp()
+    try:
+        t0 = times[0].timestamp()
+    except IndexError: # For future dates (for which times is empty)
+        t0 = weather.sunset(date).timestamp()
+
     dusk = weather.dusk(date).timestamp() - t0
     dawn = weather.dawn(date).timestamp() - t0
 
@@ -434,6 +447,16 @@ def moonrise_model(timestamp, moonrise, period, amplitude):
 ###################################### CLOUD PREDICTIONS #######################################
 ################################################################################################
 
+def get_cloud_factor_manual(cloud_cover):
+    if(cloud_cover > 19.23):
+        a = 0.02
+        b = -50
+        c = 0.85
+        result = math.cbrt((a * (cloud_cover + b))) + c
+    else:
+        result = 0
+    return result
+
 def get_cloud_factor(cloud_cover):
     """
     Returns the moon factor (predicted maximum effect of the cloud cover on MSAS).
@@ -453,9 +476,6 @@ def get_cloud_factor(cloud_cover):
         date = dates[i]
 
         times, msas = dates_filtered, vals_filtered#parse.get_values_by_night(times_filtered, vals_filtered, date)
-
-        print(times)
-        print(msas)
 
         weather_times, clouds = weather.from_big_weather_night(date)
 

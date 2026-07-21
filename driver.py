@@ -3,6 +3,7 @@ import parse
 import graph
 import weather
 import datetime
+from datetime import timedelta
 import time
 
 def read_file():
@@ -84,8 +85,10 @@ def menu_prompt():
     print('  5. Graph maximum quality over all nights.')
     print('  6. View annual sinusoidal effect fit curve.')
     print('  7. Test prediction model on a date in the past.')
-    print('  8. Add another file to the dataset.')
-    print('  9. Open command line.')
+    print('  8. Predict data for a date in the future.')
+    print('  9. Generate predictions for this week.')
+    print('  10. Add another file to the dataset.')
+    print('  11. Open command line.')
 
     feature = input('Select a feature: ')
 
@@ -102,7 +105,7 @@ def menu_prompt():
         
         case '3': # Graph quality with markers for all individual nights.
             for date in parse.get_unique_dates(parse.time_local)[:-1]:
-                date = date.year + '/' + date.month + '/' + date.day
+                date = str(date.year) + '/' + str(date.month) + '/' + str(date.day)
                 cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date}&invert SPLIT weather%date={date}&grid'
                 graph.graph(cmd)
 
@@ -122,13 +125,23 @@ def menu_prompt():
 
         case '7': # Test prediction model on a date in the past.
             date = date_prompt_string()
-            cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date} OVERLAY prediction%date={date}%consider_moon=False%color=purple OVERLAY prediction%date={date}%color=orange&invert SPLIT weather%date={date}'
+            cmd = f'raw-individual%date={date} OVERLAY markers-individual%date={date} OVERLAY prediction%date={date}%consider_clouds=False%color=purple OVERLAY prediction%date={date}%consider_clouds=False%consider_moon=False%color=gray OVERLAY prediction%date={date}%color=orange&invert&sharex SPLIT weather%date={date}'
+            graph.graph(cmd)
+        
+        case '8': # Use prediction model to get data for a date in the future
+            date = date_prompt_string()
+            cmd = f'prediction%date={date}%color=green OVERLAY markers-individual%date={date}&invert&sharex SPLIT weather%date={date}'
             graph.graph(cmd)
 
-        case '8': # Add another file to the dataset.
+        case '9': # Use prediction model to generate data for this week
+            date = parse.date_to_string(datetime.date.today())
+            cmd = f"prediction%date=DATE%color=green OVERLAY markers-individual%date=DATE&invert&sharex#repeat=7#start={date}#mode=o SPLIT weather%date=DATE#repeat=7#start={date}#mode=o"
+            graph.graph(cmd)
+
+        case '10': # Add another file to the dataset.
             read_file()
 
-        case '9':
+        case '11':
             cmd = input('Input command: ')
             graph.graph(cmd)
          

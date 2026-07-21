@@ -258,7 +258,7 @@ def all_weather(location):
     f"&start_date={dates[0]}"
     f"&end_date={dates[-1]}"
     "&hourly=cloud_cover"
-    "&timezone=America/New_York"
+    f"&timezone={location.timezone}"
     )
 
     data = requests.get(url).json()
@@ -271,6 +271,39 @@ def all_weather(location):
         times, clouds = [], []
 
     return times, clouds
+
+def forecast(date, location):
+    """
+    Stores weather forecast for the entire dataset to prevent repeated API calls. This can be
+    called when weather information needs to be updated, but should not be used repeatedly
+    within loops.
+
+    Args:
+        location (Location object): The location to retrieve forecasts for.
+
+    Returns:
+        list of datetime objects:
+    """
+    url = (
+    "https://api.open-meteo.com/v1/forecast"
+    f"?latitude={location.latitude.strip().replace('+', '')}"
+    f"&longitude={location.longitude.strip().replace('+', '')}"
+    f"&start_date={date}"
+    f"&end_date={date + timedelta(days=1)}"
+    "&hourly=cloud_cover"
+    f"&timezone={location.timezone}"
+    )
+
+    data = requests.get(url).json()
+
+    try:
+        times = [t.replace(tzinfo=location.timezone) for t in parse.format_all(data["hourly"]["time"])]
+        clouds = data["hourly"]["cloud_cover"]
+    except KeyError:
+        print(data)
+        times, clouds = [], []
+    
+    return parse.get_values_by_time(times, clouds, sunset(date) - timedelta(minutes=30), sunrise(date) + timedelta(minutes=30))
 
 def from_all_weather_night(date):
     """

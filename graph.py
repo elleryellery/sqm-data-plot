@@ -1,5 +1,8 @@
+import datetime
+
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+from matplotlib.transforms import blended_transform_factory
 import parse
 import weather
 from datetime import timedelta
@@ -39,6 +42,8 @@ def graph_quality_all(filter_type, ax=None, color=None):
                 by value: Removes datapoints where the MSAS is below the msas_night_threshold
                 by dawn/dusk: Removes datapoints that are not between dawn and dusk
                 none: Keeps all values, including daytime ones.
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
+        color: what color to make the graph
     """
     if(ax==None):
         fig, ax = plt.subplots()
@@ -66,15 +71,11 @@ def graph_quality_all(filter_type, ax=None, color=None):
 
 def graph_markers_all(ax=None):
     """
-    Graphs the entire dataset with markers showing important sun and moon events (i.e. dawn, dusk,
+    Graphs markers showing important sun and moon events for the entire dataset (i.e. dawn, dusk,
     sunrise, sunset, moonrise, moonset, etc.).
 
     Args:
-        filter_type (str): If you wish to remove daytime values from the graph, you must specify
-            a filter type. Options are as follows:
-                by value: Removes datapoints where the MSAS is below the msas_night_threshold
-                by dawn/dusk: Removes datapoints that are not between dawn and dusk
-                none: Keeps all values, including daytime ones.
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
     """
     if(ax==None):
         fig, ax = plt.subplots()
@@ -112,7 +113,7 @@ def graph_quality_individual(date, ax=None, color=None):
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("MSAS")
-    ax.set_title("MSAS vs Time")
+    ax.set_title(f"MSAS vs Time: {date}")
     ax.xaxis.set_major_formatter(timeFormat)
 
     return fig, ax
@@ -120,16 +121,20 @@ def graph_quality_individual(date, ax=None, color=None):
 
 def graph_markers_individual(date, ax=None):
     """
-    Graphs data for a single day with important sun and moon events overlaid on the graph.
+    Graphs important sun and moon events as vertical line markers. Also labels the graph with the moon illumination
+    and date.
 
     Args:
         date (datetime.date() object): The date on which the night to be graphed begins.
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
     """
 
     if(ax==None):
         fig, ax = plt.subplots()
     else:
         fig = ax.figure
+
+    ax.set_ylim(7, 22)
 
     all_data = weather.get_all_data(date)
 
@@ -138,25 +143,26 @@ def graph_markers_individual(date, ax=None):
     for label, time in (all_data).items():
         ax.vlines(time, ymin, ymax, color=event_colors[label])
         ax.text(time, (ymin + ymax)/2, label.capitalize(), rotation=90, verticalalignment='bottom', color=event_colors[label])
-
-    ax.text(0.5, 0.9, f'Moon Illumination: {weather.moon_illumination(date):.1f}%', horizontalalignment='center', color='slategray', transform=ax.transAxes)
+    
+    ax.text(all_data['sunset'] + (all_data['sunrise'] - all_data['sunset'])/2, 0.95, date, horizontalalignment='center', color='black', transform=blended_transform_factory(ax.transData, ax.transAxes))
+    ax.text(all_data['sunset'] + (all_data['sunrise'] - all_data['sunset'])/2, 0.9, f'Moon Illumination: {weather.moon_illumination(date):.1f}%', horizontalalignment='center', color='slategray', transform=blended_transform_factory(ax.transData, ax.transAxes))
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("MSAS")
-    ax.set_title("MSAS vs Time")
 
     return fig, ax
 
 def graph_weather(date, ax=None, color='tomato'):
     """
-    Graphs MSAS vs. time with weather data. Sun and moon events appear overlaid on the MSAS graph,
-    and cloud cover data appears as a second graph below the first.
+    Graphs the fit curve for the annual sinusoidal effect.
 
     Args:
-        date (datetime.date object): date to graph weather for
-    
+        date (datetime.date): date to graph
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
+        color (str): what color to make the graph
+        
     Returns:
-        fig, axs: graph output
+        fig, ax: graph objects
     """
     if(ax==None):
         fig, ax = plt.subplots()
@@ -167,6 +173,8 @@ def graph_weather(date, ax=None, color='tomato'):
         color='tomato'
 
     weather_times, cloud_data = weather.from_all_weather_night(date)
+    if(len(weather_times) == 0):
+        weather_times, cloud_data = weather.forecast(date, parse.location)
 
     ax.plot(weather_times, cloud_data, color=color)
     ax.set_ylabel("Cloud Cover (%)")
@@ -179,12 +187,15 @@ def graph_weather(date, ax=None, color='tomato'):
 
 def graph_sinusoidal(filter, ax=None, color='blue'):
     """
-    Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
-    during the night changes as the year progresses. The bottom graph shows how the time at which 
-    the MSAS value is reached changes as the year progresses. Works best with a large dataset.
+    Graphs annual sinusoidal effect raw data.
 
     Args:
-        filter (boolean): removes days with bad weather if enabled 
+        filter (boolean): removes dates with bright moon if enabled
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
+        color (str): what color to make the graph
+        
+    Returns:
+        fig, ax: graph objects
     """
     if(ax==None):
         fig, ax = plt.subplots()
@@ -212,9 +223,14 @@ def graph_sinusoidal(filter, ax=None, color='blue'):
 
 def graph_sinfit(ax=None, color='green'):
     """
-    Creates two graphs in the same window. The top graph shows how the maximum MSAS value reached
-    during the night changes as the year progresses. The bottom graph shows how the time at which 
-    the MSAS value is reached changes as the year progresses. Works best with a large dataset. 
+    Graphs the fit curve for the annual sinusoidal effect.
+
+    Args:
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
+        color (str): what color to make the graph
+        
+    Returns:
+        fig, ax: graph objects
     """
     if(ax==None):
         fig, ax = plt.subplots()
@@ -227,6 +243,20 @@ def graph_sinfit(ax=None, color='green'):
     return fig, ax
     
 def graph_prediction(date, ax=None, consider_date=True, consider_moon=True, consider_clouds=True, color='green'):
+    """
+    Graphs the prediction algorithm's output for the specified date.
+
+    Args:
+        date (datetime.date): date to graph
+        ax (matplotlib.Axes): axes can be specified to overlay the graph on an existing axes. If not specified, axes will be created.
+        consider_date (boolean): whether the prediction algorithm should consider annual sinusoidal effects
+        consider_moon (boolean): whether the prediction algorithm should consider the effect of the moon
+        consider_clouds (boolean): whether the prediction algorithm should consider the effect of clouds
+        color (str): the color for the graph to be drawn in
+
+    Returns:
+        fig, ax: graph objects
+    """
     if(ax==None):
         fig, ax = plt.subplots()
     else:
@@ -234,18 +264,50 @@ def graph_prediction(date, ax=None, consider_date=True, consider_moon=True, cons
         
     times, vals = predict.make_prediction(date, consider_date, consider_moon, consider_clouds)
     ax.plot(times, vals, color=color)
+    ax.set_title(f'Predicted MSAS vs. Time: {date}')
 
     return fig, ax
 
 def graph(command):
     """
-    A function to make graphs and overlay graphs on top of each other.
+    A function to make graphs and overlay graphs on top of each other. Interprets a string command to generate 
+    graphs meeting the specified requirements.
+
+    Args:
+        command (str): a command formatted according to the rules outlined in the README
     """
 
     graphs = command.split(' SPLIT ')
     fig, axs = plt.subplots(len(graphs), 1, squeeze=False, constrained_layout=True)
 
     for i in range(len(graphs)):
+        # Interpret repeat commands
+        if('#repeat=' in graphs[i]):
+            repeat_commands = graphs[i].split('#')
+            num_repeats = 1
+            start_date = None
+            mode = ' SPLIT '
+            for cmd in repeat_commands[1:]:
+                if('repeat=' in cmd):
+                    num_repeats = int(cmd.split('=')[1])
+                elif('start=' in cmd):
+                    start_date = parse.get_datetimedate(cmd.split('=')[1])
+                elif('mode=' in cmd):
+                    if(cmd.split('=')[1] == 'o'):
+                        mode = ' OVERLAY '
+
+            base_command = graphs[i].split('&')[0].split('#')[0]
+            set = graphs[i].split('#')[0].split('&')[1:]
+
+            graphs[i] = ''
+            for j in range(num_repeats):
+                graphs[i] += base_command.replace('DATE', parse.date_to_string(start_date + timedelta(days=j)))
+                if(j < num_repeats - 1):
+                    graphs[i] += mode
+                else:
+                    for s in set:
+                        graphs[i] += '&' + s
+
         settings = graphs[i].split('&')
         data = settings[0].split(' OVERLAY ')
         settings = settings[1:]
@@ -307,7 +369,11 @@ def graph(command):
         for setting in settings:
             if('invert' in setting):
                 ax.invert_yaxis()
-            if('grid' in setting):
+            elif('grid' in setting):
                 ax.grid(True)
+            elif('sharex' in setting):
+                for a in range(len(axs) - 1, 0, -1):
+                    axs[a][0].sharex(axs[a-1][0])
+
 
     plt.show()

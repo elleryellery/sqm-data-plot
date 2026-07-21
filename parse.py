@@ -136,6 +136,9 @@ def get_datetimedate(input_date):
     year, day, month = input_date.split('/')
     return datetime.date(int(year), int(day), int(month))
 
+def date_to_string(date):
+    return str(date).replace('-', '/')
+
 ################################################################################################
 ################################## RETRIEVING DATA SUBSETS #####################################
 ################################################################################################
