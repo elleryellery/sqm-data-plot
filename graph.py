@@ -303,10 +303,16 @@ def graph(command):
             for j in range(num_repeats):
                 graphs[i] += base_command.replace('DATE', parse.date_to_string(start_date + timedelta(days=j)))
                 if(j < num_repeats - 1):
+                    if(mode == ' SPLIT '):
+                        for s in set:
+                            graphs[i] += '&' + s
                     graphs[i] += mode
                 else:
                     for s in set:
                         graphs[i] += '&' + s
+            if(mode == ' SPLIT '):
+                graph(graphs[i])
+                return
 
         settings = graphs[i].split('&')
         data = settings[0].split(' OVERLAY ')
@@ -314,7 +320,7 @@ def graph(command):
         for dat in data:
             # Default qualifier values
             date = None
-            filter = None
+            filter = 'none'
             color = None
             consider_date = True
             consider_moon = True
@@ -344,7 +350,6 @@ def graph(command):
 
             # Graph command parsing
             ax = axs[i][0]
-            ax.grid(True)
             match(dat):
                 case 'raw-all': # MSAS vs. time for all dates
                     graph_quality_all(filter, ax, color)
@@ -375,5 +380,5 @@ def graph(command):
                 for a in range(len(axs) - 1, 0, -1):
                     axs[a][0].sharex(axs[a-1][0])
 
-
+    print(command)
     plt.show()
