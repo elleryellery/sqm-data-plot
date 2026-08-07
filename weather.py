@@ -405,7 +405,7 @@ def remove_bad_days(data):
 
 def dim_moon(date):
     """
-    Returns whether the moon illumination on a certain date is less than 30%.
+    Returns whether the moon illumination on a certain date is less than 25%.
     """
     illumination = moon_illumination(date)
 

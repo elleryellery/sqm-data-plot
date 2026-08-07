@@ -81,7 +81,7 @@ def menu_prompt():
     print('  1. Graph quality over all nights.')
     print('  2. Graph quality with sunrise/sunset/moonrise/moonset markers over all nights.')
     print('  3. Graph quality with markers and weather for all individual nights.')
-    print('  4. Graph quality with markers and weather for a specified night.')
+    print('  4. Graph quality with markers and weather for a specified night in the past.')
     print('  5. Graph maximum quality over all nights.')
     print('  6. View annual sinusoidal effect fit curve.')
     print('  7. Test prediction model on a date in the past.')
@@ -160,4 +160,4 @@ read_file() # Do not remove this line unless you know what you're doing!
 
 while(True): # Runs the regular terminal user interface
     menu_prompt()
-    parse.clear_terminal()
+    #parse.clear_terminal()

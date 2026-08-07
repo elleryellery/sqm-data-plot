@@ -202,7 +202,7 @@ def graph_sinusoidal(filter, ax=None, color='blue'):
     else:
         fig = ax.figure
 
-    if(filter):
+    if(filter != 'none' and filter):
         qualities, time, dates = parse.max_quality_over_time()
         dates, qualities = weather.filter_no_moon(qualities, dates)
     else:
